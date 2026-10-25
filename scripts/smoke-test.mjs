@@ -1,7 +1,7 @@
 /**
  * 本地冒烟测试（无需网络、无需 Cloudflare 账号）
  * 用 mock fetch 验证：HF 数据集解析（含翻页与分类过滤）、AA API 解析、
- * 国内 SPA 降级、快照可序列化、前端页面渲染。
+ * 快照可序列化、前端页面渲染。
  *
  * 运行：node scripts/smoke-test.mjs
  */
@@ -87,10 +87,6 @@ globalThis.fetch = async (url, opts = {}) => {
     if (!opts.headers || !opts.headers['x-api-key']) return respond({ error: 'Unauthorized' }, 'application/json', 401);
     return respond(AA_DATA);
   }
-  if (u.includes('superclueai.com') || u.includes('opencompass.org.cn') || u.includes('flageval.baai.ac.cn')) {
-    // 国内三家：SPA 返回 HTML
-    return respond('<!doctype html><html><body>app</body></html>', 'text/html; charset=utf-8');
-  }
   throw new Error('unexpected fetch: ' + u);
 };
 
@@ -112,7 +108,7 @@ console.log('smoke test: ai-leaderboard worker\n');
 // 1. 无 AA key：刷新全部数据源
 const snap = await refreshAll({});
 
-await ok('返回 7 个数据源', () => assert.equal(snap.sources.length, 7));
+await ok('返回 4 个数据源（仅收录可自动获取的榜单）', () => assert.equal(snap.sources.length, 4));
 
 await ok('Arena 文本榜：翻页 + 分类过滤 + 排序 + 前 10', () => {
   const s = snap.sources.find((x) => x.id === 'arena-text');
@@ -148,14 +144,6 @@ await ok('AA 无 key → unavailable + 引导文案', () => {
   assert.equal(s.entries.length, 0);
 });
 
-await ok('国内三家 SPA → unavailable', () => {
-  for (const id of ['superclue', 'opencompass', 'flageval']) {
-    const s = snap.sources.find((x) => x.id === id);
-    assert.equal(s.status, 'unavailable', id);
-    assert.match(s.error, /SPA/);
-  }
-});
-
 await ok('快照可 JSON 序列化（无函数残留）', () => {
   const str = JSON.stringify(snap);
   assert.ok(str.length > 1000);
@@ -187,16 +175,12 @@ await ok('AA key 无效（401）→ unavailable', async () => {
   assert.match(s.error, /401/);
 });
 
-// 3. 内置快照（首次访问）
-await ok('buildFallbackSnapshot：Agent 榜有缓存快照、文本榜待抓取', () => {
+// 3. 内置快照（首次访问）：空 sources，前端进入“抓取中”状态
+await ok('buildFallbackSnapshot：sources 为空、含时间戳', () => {
   const fb = buildFallbackSnapshot();
-  const agent = fb.sources.find((x) => x.id === 'arena-agent');
-  const text = fb.sources.find((x) => x.id === 'arena-text');
-  assert.equal(agent.status, 'cached');
-  assert.equal(agent.entries.length, 10);
-  assert.equal(agent.snapshotDate, '2026-10-25');
-  assert.equal(text.status, 'unavailable');
-  assert.equal(fb.sources.every((s) => typeof s.fetcher === 'undefined'), true);
+  assert.equal(fb.sources.length, 0);
+  assert.ok(fb.generatedAt);
+  assert.ok(!Number.isNaN(new Date(fb.generatedAt).getTime()));
 });
 
 // 4. 前端页面
@@ -204,8 +188,8 @@ await ok('前端页面包含关键结构与液态玻璃样式', () => {
   const html = renderPage();
   for (const marker of [
     '<!DOCTYPE html>', 'backdrop-filter', 'prefers-color-scheme: dark',
-    'id="seg"', 'id="grid"', '/api/data', '/api/refresh',
-    'lmarena-ai/leaderboard-dataset', 'SuperCLUE', 'OpenCompass', 'FlagEval',
+    'id="grid"', '/api/data', '/api/refresh',
+    'lmarena-ai/leaderboard-dataset',
     'prefers-reduced-motion',
   ]) {
     assert.ok(html.includes(marker), 'missing: ' + marker);
@@ -213,6 +197,10 @@ await ok('前端页面包含关键结构与液态玻璃样式', () => {
   assert.ok(html.length > 15000, '页面过短，可能被截断');
   // 不应残留未转义的模板占位
   assert.ok(!html.includes('undefined'), '页面包含 undefined');
+  // 已移除的数据源与降级文案不应再出现
+  for (const gone of ['SuperCLUE', 'OpenCompass', 'FlagEval', '暂无法自动获取', 'id="seg"']) {
+    assert.ok(!html.includes(gone), '不应残留: ' + gone);
+  }
 });
 
 // 5. 数据源配置完整性
@@ -222,7 +210,7 @@ await ok('所有数据源字段完整且唯一', () => {
     for (const k of ['id', 'name', 'category', 'org', 'url', 'metric', 'accent', 'desc', 'fetcher']) {
       assert.ok(s[k] != null && s[k] !== '', `source ${s.id} 缺少字段 ${k}`);
     }
-    assert.ok(['global', 'china'].includes(s.category));
+    assert.equal(typeof s.category, 'string');
     assert.ok(s.url.startsWith('https://'));
     assert.ok(!ids.has(s.id), '重复 id: ' + s.id);
     ids.add(s.id);

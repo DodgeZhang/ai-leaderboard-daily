@@ -26,14 +26,8 @@ export function renderPage() {
     --glass-shadow: 0 20px 50px -12px rgba(80, 90, 160, 0.22), 0 4px 14px -6px rgba(80, 90, 160, 0.12);
     --row-bg: rgba(255, 255, 255, 0.38);
     --row-hover: rgba(255, 255, 255, 0.72);
-    --seg-bg: rgba(120, 120, 128, 0.16);
-    --seg-active: rgba(255, 255, 255, 0.95);
     --pill-live-bg: rgba(48, 209, 88, 0.16);
     --pill-live-fg: #1b8f3c;
-    --pill-cached-bg: rgba(255, 159, 10, 0.16);
-    --pill-cached-fg: #b2500a;
-    --pill-na-bg: rgba(120, 120, 128, 0.14);
-    --pill-na-fg: #6e6e73;
   }
 
   @media (prefers-color-scheme: dark) {
@@ -47,14 +41,8 @@ export function renderPage() {
       --glass-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.5), 0 4px 14px -6px rgba(0, 0, 0, 0.35);
       --row-bg: rgba(255, 255, 255, 0.06);
       --row-hover: rgba(255, 255, 255, 0.12);
-      --seg-bg: rgba(120, 120, 128, 0.24);
-      --seg-active: rgba(99, 99, 102, 0.85);
       --pill-live-bg: rgba(48, 209, 88, 0.2);
       --pill-live-fg: #4cd964;
-      --pill-cached-bg: rgba(255, 159, 10, 0.2);
-      --pill-cached-fg: #ffb340;
-      --pill-na-bg: rgba(120, 120, 128, 0.2);
-      --pill-na-fg: #a1a1a6;
     }
   }
 
@@ -191,33 +179,6 @@ export function renderPage() {
   .icon-btn.spinning span { display: inline-block; animation: spin 0.9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* iOS 分段控件 */
-  .seg {
-    display: inline-flex;
-    background: var(--seg-bg);
-    border-radius: 14px;
-    padding: 2.5px;
-    gap: 2px;
-  }
-  .seg button {
-    border: 0;
-    background: transparent;
-    padding: 7px 16px;
-    border-radius: 12px;
-    font-size: 13.5px;
-    font-weight: 600;
-    color: var(--text-2);
-    cursor: pointer;
-    font-family: inherit;
-    transition: background 0.25s, color 0.25s, box-shadow 0.25s;
-    white-space: nowrap;
-  }
-  .seg button.active {
-    background: var(--seg-active);
-    color: var(--text-1);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-  }
-
   /* ---------- 卡片网格 ---------- */
   .grid {
     display: grid;
@@ -283,8 +244,6 @@ export function renderPage() {
     font-variant-numeric: tabular-nums;
   }
   .pill.live { background: var(--pill-live-bg); color: var(--pill-live-fg); }
-  .pill.cached { background: var(--pill-cached-bg); color: var(--pill-cached-fg); }
-  .pill.na { background: var(--pill-na-bg); color: var(--pill-na-fg); }
 
   .metric {
     margin-top: 12px;
@@ -488,20 +447,15 @@ export function renderPage() {
     </div>
     <div class="meta-row">
       <span class="meta-pill" id="updatedAt">加载中…</span>
-      <div class="seg" id="seg">
-        <button data-cat="all" class="active">全部</button>
-        <button data-cat="global">国际榜</button>
-        <button data-cat="china">国内榜</button>
-      </div>
     </div>
   </header>
 
   <main class="grid" id="grid"></main>
 
   <footer class="glass">
-    <p><b>数据来源</b>：Arena（Hugging Face 官方数据集 lmarena-ai/leaderboard-dataset）· Artificial Analysis · SuperCLUE · OpenCompass 司南 · FlagEval 天秤</p>
-    <p><b>怎么看</b>：Arena 是真人盲测偏好，Artificial Analysis 是独立实测综合分，国内三榜侧重中文能力——口径不同，建议交叉参考；头部模型分差常带置信区间，可能是统计意义上的并列。</p>
-    <p>本页面由 Cloudflare Worker 定时生成 · 免费额度内运行 · 数据版权归各榜单官方所有</p>
+    <p><b>数据来源</b>：Arena（Hugging Face 官方数据集 lmarena-ai/leaderboard-dataset）· Artificial Analysis（配置 API Key 后显示）</p>
+    <p><b>怎么看</b>：Arena 是真人盲测偏好，Artificial Analysis 是独立实测综合分——口径不同，建议交叉参考；头部模型分差常带置信区间，可能是统计意义上的并列。</p>
+    <p>本页面只展示成功抓取到数据的榜单 · Cloudflare Worker 每日自动更新 · 数据版权归各榜单官方所有</p>
   </footer>
 </div>
 
@@ -511,12 +465,12 @@ export function renderPage() {
 (function () {
   'use strict';
 
-  var state = { data: null, cat: 'all' };
+  var state = { data: null };
   var grid = document.getElementById('grid');
   var updatedAt = document.getElementById('updatedAt');
   var refreshBtn = document.getElementById('refreshBtn');
-  var seg = document.getElementById('seg');
   var toast = document.getElementById('toast');
+  var coldRetries = 0; // 首次抓取中的自动重试计数
 
   function esc(v) {
     return String(v == null ? '' : v)
@@ -536,10 +490,8 @@ export function renderPage() {
   }
 
   function statusMeta(s) {
-    if (s.status === 'live') return { cls: 'live', label: '● 实时' };
-    if (s.status === 'cached') return { cls: 'cached', label: '◐ 官网快照 ' + (s.snapshotDate || '') };
-    if (s.status === 'empty') return { cls: 'na', label: '○ 暂无数据' };
-    return { cls: 'na', label: '○ 暂无法自动获取' };
+    // 只有拿到数据的榜单才会渲染，状态只可能是 live
+    return s.status === 'live' ? { cls: 'live', label: '● 实时' } : null;
   }
 
   function rankCls(r) { return r === 1 ? 'rk rk1' : r === 2 ? 'rk rk2' : r === 3 ? 'rk rk3' : 'rk'; }
@@ -563,14 +515,13 @@ export function renderPage() {
     var st = statusMeta(s);
     var list = (s.entries && s.entries.length)
       ? '<ol class="list">' + s.entries.map(rowHtml).join('') + '</ol>'
-      : '<div class="empty-state"><div class="ico">🛠️</div><p>' + esc(s.error || '暂无数据') + '</p></div>';
-    var note = s.snapshotNote || s.error || s.desc || '';
+      : '';
+    var pill = st ? '<span class="pill ' + st.cls + '">' + esc(st.label) + '</span>' : '';
     return '<section class="card glass" style="--accent:' + esc(s.accent) + ';animation-delay:' + (i * 60) + 'ms">' +
       '<div class="card-top"><div class="card-title"><h2>' + esc(s.name) + '</h2>' +
-      '<span class="org">' + esc(s.org) + '</span></div>' +
-      '<span class="pill ' + st.cls + '">' + esc(st.label) + '</span></div>' +
+      '<span class="org">' + esc(s.org) + '</span></div>' + pill + '</div>' +
       '<p class="metric">' + esc(s.metric) + '</p>' + list +
-      '<div class="card-foot"><span class="note">' + esc(note) + '</span>' +
+      '<div class="card-foot"><span class="note">' + esc(s.desc || '') + '</span>' +
       '<a class="go" href="' + esc(s.url) + '" target="_blank" rel="noopener">官网 ↗</a></div>' +
       '</section>';
   }
@@ -583,10 +534,13 @@ export function renderPage() {
 
   function render() {
     if (!state.data) { grid.innerHTML = skeleton(4); return; }
-    var list = state.data.sources || [];
-    if (state.cat !== 'all') list = list.filter(function (s) { return s.category === state.cat; });
+    // 只渲染成功拿到数据的榜单；拿不到的（未配置 key / 抓取失败）不占版面
+    var list = (state.data.sources || []).filter(function (s) {
+      return s.entries && s.entries.length > 0;
+    });
     if (!list.length) {
-      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><p>该分类下暂无数据源</p></div>';
+      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="ico">⏳</div>' +
+        '<p>数据抓取中，请稍候…<br>首次访问约需十几秒，也可点右上角 ⟳ 手动刷新</p></div>';
       return;
     }
     grid.innerHTML = list.map(cardHtml).join('');
@@ -605,6 +559,12 @@ export function renderPage() {
         state.data = data;
         updatedAt.textContent = '更新于 ' + relTime(data.generatedAt);
         render();
+        // 冷启动：KV 里还没有数据时，后台抓取需要十几秒，自动重试几次
+        var live = (data.sources || []).filter(function (s) { return s.entries && s.entries.length; }).length;
+        if (!live && coldRetries < 12) {
+          coldRetries++;
+          setTimeout(load, 3000);
+        }
       })
       .catch(function () {
         grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="ico">📡</div>' +
@@ -618,23 +578,16 @@ export function renderPage() {
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (data) {
         state.data = data;
+        coldRetries = 0;
         updatedAt.textContent = '更新于 ' + relTime(data.generatedAt);
         render();
-        var live = (data.sources || []).filter(function (s) { return s.status === 'live'; }).length;
-        showToast('已刷新 · ' + live + '/' + (data.sources || []).length + ' 个榜单为实时数据');
+        var all = data.sources || [];
+        var live = all.filter(function (s) { return s.entries && s.entries.length; }).length;
+        showToast('已刷新 · ' + live + '/' + all.length + ' 个榜单获取成功');
       })
       .catch(function () { showToast('刷新失败，请稍后重试'); })
       .then(function () { refreshBtn.classList.remove('spinning'); });
   }
-
-  seg.addEventListener('click', function (e) {
-    var btn = e.target.closest('button');
-    if (!btn) return;
-    seg.querySelectorAll('button').forEach(function (b) { b.classList.remove('active'); });
-    btn.classList.add('active');
-    state.cat = btn.getAttribute('data-cat');
-    render();
-  });
 
   refreshBtn.addEventListener('click', refresh);
 

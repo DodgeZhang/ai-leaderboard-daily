@@ -4,16 +4,19 @@
  * 每个抓取器返回统一格式的数组：
  *   { rank, model, org, score, ci, license, price?, speed? }
  *
- * 抓取策略（2026-10 实测确认）：
+ * 收录原则（2026-10-26 修订）：只保留「真能自动拿到数据」的榜单，
+ * 拿不到的一律不进页面。当前收录 4 个数据源：
+ *
  *  - Arena（文本 / Agent / 搜索榜）：官方 Hugging Face 数据集
  *      lmarena-ai/leaderboard-dataset，经 datasets-server REST API 读取，
  *      免密钥、结构化 JSON，是 Arena 官方自己发布的一手数据。
  *  - Artificial Analysis：官方免费 API /api/v2/language/models/free，
- *      需要免费 API Key（配置 AA_API_KEY 后启用）。
- *  - SuperCLUE / OpenCompass 司南 / FlagEval 天秤：官网均为前端动态
- *      渲染的 SPA，没有公开数据接口（已分析其 JS  bundle 确认）。
- *      这里保留探测逻辑：未来若开放接口可直接复用；当前降级为
- *      「官网快照 / 引导访问」状态，前端卡片给出官网直达链接。
+ *      需要免费 API Key（配置 AA_API_KEY 后启用；未配置时该卡片不显示）。
+ *
+ * 已移除：SuperCLUE / OpenCompass 司南 / FlagEval 天秤。
+ * 三家官网均为前端动态渲染的 SPA，2026-10-26 再次全量探测其候选接口
+ * （含 JS bundle 分析）均只返回 HTML，没有任何公开数据接口，
+ * 无法自动获取，故从产品中移除。
  */
 
 const UA =
@@ -92,7 +95,7 @@ async function fetchArenaBoard(config, category, kind) {
 async function fetchArtificialAnalysis(env) {
   const key = env && env.AA_API_KEY;
   if (!key) {
-    throw new Error('未配置 AA_API_KEY（免费申请：artificialanalysis.ai 注册账号 → API Keys → 用 wrangler secret put AA_API_KEY 注入）');
+    throw new Error('未配置 AA_API_KEY（免费申请：artificialanalysis.ai 注册账号 → API Keys → 在 Worker 设置里注入）');
   }
   const res = await fetchWithTimeout('https://artificialanalysis.ai/api/v2/language/models/free', {
     headers: { 'x-api-key': key },
@@ -117,36 +120,6 @@ async function fetchArtificialAnalysis(env) {
       ? `${r1(m.median_output_tokens_per_second)} tok/s`
       : null,
   }));
-}
-
-/**
- * 国内三家榜单的尽力探测：依次尝试候选接口，拿到合法 JSON 数组就用。
- * 当前三家官网都是 SPA（返回 HTML），此函数会抛错并触发降级。
- */
-async function fetchChinaBoard(probeUrls) {
-  for (const u of probeUrls) {
-    try {
-      const res = await fetchWithTimeout(u, {}, 8000);
-      if (!res.ok) continue;
-      const ct = res.headers.get('content-type') || '';
-      if (!ct.includes('json')) continue;
-      const json = await res.json();
-      const arr = Array.isArray(json) ? json : json.data || json.rows || json.list;
-      if (Array.isArray(arr) && arr.length && typeof arr[0] === 'object') {
-        return arr.slice(0, TOP_N).map((m, i) => ({
-          rank: m.rank ?? i + 1,
-          model: m.model || m.model_name || m.name || '未知模型',
-          org: m.org || m.organization || m.creator || m.provider || '',
-          score: m.score ?? m.rating ?? m.elo ?? m.value ?? null,
-          ci: null,
-          license: m.license || null,
-        }));
-      }
-    } catch (_) {
-      /* 尝试下一个候选地址 */
-    }
-  }
-  throw new Error('官网为动态渲染页面（SPA），暂无公开数据接口');
 }
 
 /* ------------------------------------------------------------------ */
@@ -175,22 +148,6 @@ export const SOURCES = [
     accent: '#5E5CE6',
     desc: '在真实工作流中跑 Agent 任务，衡量“能不能把事办成”',
     fetcher: () => fetchArenaBoard('agent', 'overall', 'ips'),
-    fallback: {
-      date: '2026-10-25',
-      note: '以下为 2026-10-25 核实的官网快照，实时抓取恢复前展示',
-      entries: [
-        { rank: 1, model: 'Claude Opus 5.5 (Max)', org: 'Anthropic', score: '20.35%', ci: null, license: 'Proprietary' },
-        { rank: 2, model: 'GPT-6 Astra (Max)', org: 'OpenAI', score: '15.15%', ci: null, license: 'Proprietary' },
-        { rank: 3, model: 'Claude Fable 5.1 (Max)', org: 'Anthropic', score: '14.33%', ci: null, license: 'Proprietary' },
-        { rank: 4, model: 'GPT-6.1 Sol (Max)', org: 'OpenAI', score: '13.72%', ci: null, license: 'Proprietary' },
-        { rank: 5, model: 'Claude Sonnet 5.5 (Max)', org: 'Anthropic', score: '12.75%', ci: null, license: 'Proprietary' },
-        { rank: 6, model: 'Gemini 4 Argon (High)', org: 'Google', score: '12.12%', ci: null, license: 'Proprietary' },
-        { rank: 7, model: 'GPT-6 Sol (Max)', org: 'OpenAI', score: '9.33%', ci: null, license: 'Proprietary' },
-        { rank: 8, model: 'Claude Fable 5 (High)', org: 'Anthropic', score: '8.37%', ci: null, license: 'Proprietary' },
-        { rank: 9, model: 'Claude Opus 5 (Max)', org: 'Anthropic', score: '8.08%', ci: null, license: 'Proprietary' },
-        { rank: 10, model: 'GPT-5.6 Sol (xHigh)', org: 'OpenAI', score: '6.59%', ci: null, license: 'Proprietary' },
-      ],
-    },
   },
   {
     id: 'arena-search',
@@ -202,22 +159,6 @@ export const SOURCES = [
     accent: '#64D2FF',
     desc: '对比各模型的联网检索与答案综合能力',
     fetcher: () => fetchArenaBoard('search_style_control', 'overall', 'bt'),
-    fallback: {
-      date: '2026-10-25',
-      note: '以下为 2026-10-25 核实的官网快照，实时抓取恢复前展示',
-      entries: [
-        { rank: 1, model: 'gemini-3-pro-grounding', org: 'Google', score: 1213, ci: null, license: 'Proprietary' },
-        { rank: 2, model: 'gpt-5.2-search', org: 'OpenAI', score: 1210, ci: null, license: 'Proprietary' },
-        { rank: 3, model: 'gpt-5.1-search', org: 'OpenAI', score: 1199, ci: null, license: 'Proprietary' },
-        { rank: 4, model: 'grok-4-1-fast-search', org: 'xAI', score: 1178, ci: null, license: 'Proprietary' },
-        { rank: 5, model: 'grok-4-fast-search', org: 'xAI', score: 1164, ci: null, license: 'Proprietary' },
-        { rank: 6, model: 'gemini-2.5-pro-grounding', org: 'Google', score: 1143, ci: null, license: 'Proprietary' },
-        { rank: 7, model: 'o3-search', org: 'OpenAI', score: 1138, ci: null, license: 'Proprietary' },
-        { rank: 8, model: 'ppl-sonar-reasoning-pro-high', org: 'Perplexity AI', score: 1137, ci: null, license: 'Proprietary' },
-        { rank: 9, model: 'grok-4-search', org: 'xAI', score: 1137, ci: null, license: 'Proprietary' },
-        { rank: 10, model: 'claude-opus-4-1-search', org: 'Anthropic', score: 1128, ci: null, license: 'Proprietary' },
-      ],
-    },
   },
   {
     id: 'aa-llm',
@@ -229,51 +170,6 @@ export const SOURCES = [
     accent: '#FF9F0A',
     desc: '统一条件独立实测，同时给出价格与速度，适合看“性价比”',
     fetcher: fetchArtificialAnalysis,
-  },
-  {
-    id: 'superclue',
-    name: 'SuperCLUE',
-    category: 'china',
-    org: '北大人工智能研究院团队',
-    url: 'https://www.superclueai.com/',
-    metric: '中文综合得分 · 每月更新',
-    accent: '#FF375F',
-    desc: '中文大模型综合性测评基准，客观题库 + 匿名对战机制',
-    fetcher: () =>
-      fetchChinaBoard([
-        'https://www.superclueai.com/api/leaderboard',
-        'https://www.superclueai.com/api/chores/leaderboard',
-      ]),
-  },
-  {
-    id: 'opencompass',
-    name: 'OpenCompass 司南',
-    category: 'china',
-    org: '上海人工智能实验室',
-    url: 'https://opencompass.org.cn/',
-    metric: '综合得分 · 开源评测体系',
-    accent: '#30D158',
-    desc: '全球最具影响力的开源评测体系之一，C-Eval / CMMLU 等中文基准',
-    fetcher: () =>
-      fetchChinaBoard([
-        'https://opencompass.org.cn/api/leaderboard',
-        'https://opencompass.org.cn/api/getLeaderboard',
-      ]),
-  },
-  {
-    id: 'flageval',
-    name: 'FlagEval 天秤',
-    category: 'china',
-    org: '北京智源研究院（BAAI）',
-    url: 'https://flageval.baai.ac.cn/',
-    metric: '能力-任务-指标 三维评分',
-    accent: '#BF5AF2',
-    desc: '智源牵头、多所高校共建的“能力-任务-指标”评测平台',
-    fetcher: () =>
-      fetchChinaBoard([
-        'https://flageval.baai.ac.cn/eval/model-pool/',
-        'https://flageval.baai.ac.cn/api/leaderboard',
-      ]),
   },
 ];
 
@@ -295,13 +191,10 @@ export async function refreshAll(env) {
           error: null,
         });
       } catch (err) {
-        const fb = s.fallback;
         return serialize(s, {
-          status: fb ? 'cached' : 'unavailable',
-          entries: fb ? fb.entries : [],
+          status: 'unavailable',
+          entries: [],
           error: String((err && err.message) || err),
-          snapshotDate: fb ? fb.date : null,
-          snapshotNote: fb ? fb.note : null,
         });
       }
     })
@@ -309,19 +202,11 @@ export async function refreshAll(env) {
   return { generatedAt: new Date().toISOString(), sources: results };
 }
 
-/** 不发起网络请求的快照（首次访问 / KV 为空时使用） */
+/**
+ * 不发起网络请求的空快照（首次访问 / KV 为空时使用）。
+ * 只返回时间戳，sources 为空——前端据此进入“首次抓取中”状态并自动重试，
+ * 后台抓取完成后（cron 或手动刷新写入 KV）即展示真实数据。
+ */
 export function buildFallbackSnapshot() {
-  return {
-    generatedAt: new Date().toISOString(),
-    sources: SOURCES.map((s) => {
-      const fb = s.fallback;
-      return serialize(s, {
-        status: fb ? 'cached' : 'unavailable',
-        entries: fb ? fb.entries : [],
-        error: fb ? null : '等待首次抓取（定时任务运行或手动刷新后自动填充）',
-        snapshotDate: fb ? fb.date : null,
-        snapshotNote: fb ? fb.note : null,
-      });
-    }),
-  };
+  return { generatedAt: new Date().toISOString(), sources: [] };
 }

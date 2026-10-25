@@ -28,7 +28,7 @@ async function flush() {
   while (pending.length) await pending.shift();
 }
 
-/* ---------- mock fetch（HF datasets-server + AA + 国内 SPA） ---------- */
+/* ---------- mock fetch（HF datasets-server + AA） ---------- */
 const HF = {
   text_style_control: Array.from({ length: 30 }, (_, i) => ({
     row_idx: i,
@@ -109,11 +109,11 @@ await t('GET / 返回液态玻璃 HTML 页面', async () => {
   assert.ok(body.includes('backdrop-filter'));
 });
 
-await t('GET /api/data（KV 为空）返回内置快照并触发后台抓取', async () => {
+await t('GET /api/data（KV 为空）返回空快照并触发后台抓取', async () => {
   const res = await worker.fetch(new Request('http://localhost/api/data'), env, ctx);
   assert.equal(res.status, 200);
   const data = await res.json();
-  assert.equal(data.sources.length, 7);
+  assert.equal(data.sources.length, 0);
   assert.ok(data.generatedAt);
   // 后台抓取已由 waitUntil 调度，flush 后 KV 应已写入
   await flush();

@@ -2,12 +2,12 @@
 
 > 仓库地址：**https://github.com/DodgeZhang/ai-leaderboard-daily** · 通过 Cloudflare 连接 GitHub 自动部署
 
-一个可部署到 **Cloudflare Workers** 的完整应用：后端每日定时抓取国内外最权威的 AI 排行榜数据，存入 Cloudflare KV；前端为 **iOS 液态玻璃（Liquid Glass）风格**的单页展示网站，深浅色自适应、移动端友好。
+一个可部署到 **Cloudflare Workers** 的完整应用：后端每日定时抓取全球最权威的 AI 排行榜数据，存入 Cloudflare KV；前端为 **iOS 液态玻璃（Liquid Glass）风格**的单页展示网站，深浅色自适应、移动端友好。
 
 ```
  GitHub 仓库 ──git push──▶ Cloudflare Workers Builds ──▶ 线上 Worker
  (本仓库)                    自动构建部署(约1分钟)            │
-                                                            ├─ cron 每日 16:00(北京) 抓取 7 个榜单 → 写入 KV
+                                                            ├─ cron 每日 16:00(北京) 抓取 4 个榜单 → 写入 KV
                                                             ├─ GET  /            液态玻璃页面
                                                             ├─ GET  /api/data    最新快照 JSON(过期自动自愈)
                                                             └─ POST /api/refresh 手动刷新(可选 REFRESH_TOKEN)
@@ -15,19 +15,18 @@
 
 ## 收录榜单
 
-| 榜单 | 类型 | 数据来源 | 抓取方式 |
-|---|---|---|---|
-| Arena · 文本总榜 | 国际 | arena.ai | ✅ 实时（Hugging Face 官方数据集 `lmarena-ai/leaderboard-dataset`，免密钥） |
-| Arena · Agent 榜 | 国际 | arena.ai | ✅ 实时（同上） |
-| Arena · 搜索榜 | 国际 | arena.ai | ✅ 实时（同上） |
-| Artificial Analysis | 国际 | artificialanalysis.ai | 🔑 配置 `AA_API_KEY` 后实时（官方免费 API） |
-| SuperCLUE | 国内 | superclueai.com | ⚪ 官网为 SPA 动态渲染、无公开接口 → 卡片提供官网直达（已预留探测逻辑） |
-| OpenCompass 司南 | 国内 | opencompass.org.cn | ⚪ 同上 |
-| FlagEval 天秤 | 国内 | flageval.baai.ac.cn | ⚪ 同上 |
+收录原则：**只收录能自动拿到数据的榜单，拿不到的不进页面。**
 
-> 关于 Arena 数据：Arena 官方已于 2026-04 将全部榜单历史发布为 Hugging Face 数据集（lmarena-ai/leaderboard-dataset），本 Worker 通过 datasets-server REST API 读取，是官方一手数据，无需渲染网页、无需密钥。
+| 榜单 | 数据来源 | 抓取方式 |
+|---|---|---|
+| Arena · 文本总榜 | arena.ai | ✅ 实时（Hugging Face 官方数据集 `lmarena-ai/leaderboard-dataset`，免密钥） |
+| Arena · Agent 榜 | arena.ai | ✅ 实时（同上） |
+| Arena · 搜索榜 | arena.ai | ✅ 实时（同上） |
+| Artificial Analysis | artificialanalysis.ai | 🔑 配置 `AA_API_KEY` 后实时（官方免费 API）；未配置时该榜单不显示 |
+
+> 关于 Arena 数据：Arena 官方已将全部榜单历史发布为 Hugging Face 数据集（lmarena-ai/leaderboard-dataset），本 Worker 通过 datasets-server REST API 读取，是官方一手数据，无需渲染网页、无需密钥。
 >
-> 关于国内三榜：已分析三者 JS bundle 确认无公开 JSON 接口（OpenCompass 的 `/api/*` 是 SPA 兜底路由，FlagEval 的 `/eval/model-pool/` 同样返回 HTML）。`sources.js` 中保留了探测代码，未来接口开放即自动生效。
+> 关于国内榜单（SuperCLUE / OpenCompass 司南 / FlagEval 天秤）：2026-10-26 再次全量探测确认，三家官网均为前端动态渲染的 SPA，所有候选接口只返回 HTML，没有公开数据接口，无法自动获取，故未收录。页面只展示成功抓取的榜单，不做占位。
 
 ## 部署：Cloudflare 连接 GitHub（推荐）
 
@@ -70,7 +69,7 @@ Worker 页面 → **Settings → Variables and Secrets → Add**：
 
 | 名称 | 说明 |
 |---|---|
-| `AA_API_KEY` | Artificial Analysis 免费 API Key（artificialanalysis.ai 注册账号 → API Keys，免费 1000 次/天）；不配则 AA 榜显示引导 |
+| `AA_API_KEY` | Artificial Analysis 免费 API Key（artificialanalysis.ai 注册账号 → API Keys，免费 1000 次/天）；不配则 AA 榜不显示 |
 | `REFRESH_TOKEN` | 手动刷新接口 `/api/refresh` 的访问口令；不配则接口公开 |
 
 保存后即时生效，无需重新部署。
@@ -106,7 +105,7 @@ npx wrangler deploy
 
 ```bash
 npm run dev        # wrangler dev，本地起服务（KV 用本地模拟）
-npm test           # 20 项冒烟 + 路由测试（mock 数据，无需网络）
+npm test           # 19 项冒烟 + 路由测试（mock 数据，无需网络）
 npm run check      # 语法检查
 ```
 
@@ -122,7 +121,7 @@ ai-leaderboard/
 ├── package.json
 ├── src/
 │   ├── index.js             # Worker 入口：路由 / 定时任务 / KV 读写
-│   ├── sources.js           # 7 个榜单适配器 + 降级策略 + 内置快照
+│   ├── sources.js           # 4 个榜单适配器（仅可自动获取的源）
 │   └── frontend.js          # iOS 液态玻璃单页（内联 CSS/JS）
 ├── scripts/
 │   ├── smoke-test.mjs       # 数据解析冒烟测试（12 项）
@@ -154,18 +153,18 @@ ai-leaderboard/
 }
 ```
 
-抓取失败时自动降级为「暂无法自动获取」状态并展示官网链接，不影响其他卡片。
+页面只渲染成功拿到数据的榜单卡片；抓取失败或未配置密钥的榜单不占版面，也不影响其他卡片。
 
 ## 常见问题
 
-**Q: 部署后页面显示"暂无法自动获取"？**
-A: 打开 `/healthz` 看 `lastGeneratedAt`；点页面上的 ⟳ 手动触发一次抓取。cron 任务在部署后可能需要几分钟生效。
+**Q: 部署后页面显示"数据抓取中"或卡片比预期少？**
+A: 首次访问时 KV 还是空的，Worker 会立即在后台抓取，页面每 3 秒自动重试，约十几秒后出现数据；也可点右上角 ⟳ 手动刷新。若某张卡片始终不显示：Arena 三分榜无需任何配置，AA 榜需要配置 `AA_API_KEY`（见「部署」第 3 步）。`/api/data` 可以看到每个源的抓取状态和错误原因。
 
 **Q: Cloudflare 部署失败，提示 "KV namespace id is invalid"？**
 A: `wrangler.toml` 里的 id 还是占位符 `REPLACE_WITH_YOUR_KV_NAMESPACE_ID`。按「部署」第 1 步在 Dashboard 创建命名空间并填入真实 ID，`git push` 后 Cloudflare 会自动重新部署。
 
 **Q: HF 数据集接口报错？**
-A: 确认 Worker 能访问 `datasets-server.huggingface.co`（默认可以）。若接口结构变动，`fetchArenaBoard` 会抛错并降级，不会白屏。
+A: 确认 Worker 能访问 `datasets-server.huggingface.co`（默认可以）。若接口结构变动，`fetchArenaBoard` 会抛错，该卡片不显示，不会白屏。
 
 **Q: 想改抓取时间？**
 A: 编辑 `wrangler.toml` 的 `crons`，如 `["0 2 * * *"]` = 每天 02:00 UTC（北京时间 10:00）。
