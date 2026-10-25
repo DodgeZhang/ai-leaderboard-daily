@@ -274,6 +274,8 @@ await ok('前端页面包含关键结构与液态玻璃样式', () => {
     'id="searchInput"', 'id="searchClear"',    // 搜索框
     'id="orgFilter"', 'id="orgToggle"', 'id="orgPanel"', // 厂商多选下拉
     'BOARD_ORDER',                             // 固定展示顺序
+    '[hidden] { display: none !important; }',  // hidden 显隐兜底（否则面板/✕/诊断区被 display 强制显示）
+    'z-index: 40',                             // header 抬升堆叠层级（下拉面板不被榜单卡片盖住）
   ]) {
     assert.ok(html.includes(marker), 'missing: ' + marker);
   }

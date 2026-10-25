@@ -44,6 +44,11 @@ export function renderPage() {
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
+  /* [hidden] 必须能压过组件自身的 display：
+     厂商下拉面板（flex）、搜索框清除按钮（grid）、诊断区（flex）都靠 hidden 属性显隐，
+     否则会被 CSS 里的 display 强制显示（面板关不掉、✕ 常显） */
+  [hidden] { display: none !important; }
+
   :root {
     --text-1: #1c1c1e;
     --text-2: #6e6e73;
@@ -144,7 +149,13 @@ export function renderPage() {
   }
 
   /* ---------- 头部 ---------- */
+  /* header 带 backdrop-filter（玻璃材质）会形成堆叠上下文，且默认静态定位；
+     若不显式抬升 z-index，内部绝对定位的下拉面板会被后面 position:relative 的
+     榜单卡片盖住（面板 z-index 再高也被困在 header 的堆叠上下文里）。
+     抬到 40：高于卡片（auto=0），低于页脚 toast（10，且 toast 在 .wrap 外层不受影响）。 */
   header {
+    position: relative;
+    z-index: 40;
     padding: 22px 24px 18px;
     margin-bottom: 22px;
   }
