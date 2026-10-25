@@ -12,7 +12,7 @@
  *   结果写入 KV（data:latest 最新 + data:YYYY-MM-DD 每日归档，保留 90 天）。
  */
 
-import { refreshAll, buildFallbackSnapshot } from './sources.js';
+import { refreshAll, buildFallbackSnapshot, fetchWithTimeout, AA_API } from './sources.js';
 import { renderPage } from './frontend.js';
 
 const KV_LATEST = 'data:latest';
@@ -102,14 +102,41 @@ export default {
       return jsonResponse(snap);
     }
 
-    // ---- 健康检查 ----
+    // ---- 健康检查（含数据源诊断：每个源的失败原因一眼可见） ----
     if (pathname === '/healthz') {
       const snap = await readSnapshot(env);
+      const key = env && env.AA_API_KEY;
+      // 实时探测一次 AA 接口：用于区分「key 问题」与「Worker 出口被 AA 拦截」
+      let aaProbe = null;
+      if (key) {
+        try {
+          const res = await fetchWithTimeout(`${AA_API}?page=1`, {
+            headers: { 'x-api-key': key },
+          }, 15000);
+          if (res.ok) {
+            const j = await res.json();
+            aaProbe = { reachable: true, http: res.status, items: (j.data || []).length };
+          } else {
+            aaProbe = { reachable: false, http: res.status };
+          }
+        } catch (err) {
+          aaProbe = { reachable: false, http: null, error: String((err && err.message) || err) };
+        }
+      }
       return jsonResponse({
         ok: true,
         kvBound: Boolean(env.LEADERBOARD_KV),
         lastGeneratedAt: snap ? snap.generatedAt : null,
         now: new Date().toISOString(),
+        aaKeyPresent: Boolean(key),
+        aaKeyPrefix: key ? String(key).slice(0, 4) + '…' : null,
+        aaProbe,
+        sources: ((snap && snap.sources) || []).map((s) => ({
+          id: s.id,
+          status: s.status,
+          count: (s.entries || []).length,
+          error: s.error || null,
+        })),
       });
     }
 

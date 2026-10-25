@@ -269,6 +269,8 @@ await ok('前端页面包含关键结构与液态玻璃样式', () => {
     'max-height: min(58vh, 620px)',            // 卡片内滚动
     'data-lic="open"', '仅开源', '仅闭源',       // 开源/闭源筛选
     'prefers-reduced-motion',
+    '获取最权威榜单 · 每日自动抓取',            // 副标题
+    'id="diag"', 'updateDiag', 'shortErr',     // 数据源诊断区
   ]) {
     assert.ok(html.includes(marker), 'missing: ' + marker);
   }
@@ -276,7 +278,7 @@ await ok('前端页面包含关键结构与液态玻璃样式', () => {
   // 不应残留未转义的模板占位
   assert.ok(!html.includes('undefined'), '页面包含 undefined');
   // 已移除的数据源与降级文案不应再出现（seg 控件已恢复，用于开源/闭源筛选）
-  for (const gone of ['SuperCLUE', 'OpenCompass', 'FlagEval', '暂无法自动获取']) {
+  for (const gone of ['SuperCLUE', 'OpenCompass', 'FlagEval', '暂无法自动获取', '国内外最权威']) {
     assert.ok(!html.includes(gone), '不应残留: ' + gone);
   }
 });

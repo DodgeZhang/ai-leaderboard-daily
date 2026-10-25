@@ -60,7 +60,7 @@ const HF = {
   })),
 };
 
-globalThis.fetch = async (url) => {
+globalThis.fetch = async (url, opts = {}) => {
   const u = String(url);
   const respond = (body, ct = 'application/json; charset=utf-8', status = 200) =>
     new Response(typeof body === 'string' ? body : JSON.stringify(body),
@@ -79,6 +79,9 @@ globalThis.fetch = async (url) => {
     return respond({ features: [], rows: all.slice(offset, offset + 100), num_rows_total: all.length, num_rows_per_page: 100 });
   }
   if (u.includes('artificialanalysis.ai')) {
+    // 模拟 key 无效 → 401（供 /healthz 探测路径测试）
+    const k = opts && opts.headers && opts.headers['x-api-key'];
+    if (k === 'aa_bad') return respond({ error: 'Unauthorized' }, 'application/json', 401);
     return respond({ status: 200, data: [], pagination: { has_more: false } });
   }
   return respond('<html>spa</html>', 'text/html; charset=utf-8');
@@ -141,12 +144,45 @@ await t('scheduled 定时任务写入 KV', async () => {
   assert.ok(store.has('data:' + day), '每日归档缺失');
 });
 
-await t('GET /healthz 健康检查', async () => {
+await t('GET /healthz 健康检查（含数据源诊断）', async () => {
   const res = await worker.fetch(new Request('http://localhost/healthz'), env, ctx);
   const data = await res.json();
   assert.equal(data.ok, true);
   assert.equal(data.kvBound, true);
   assert.ok(data.lastGeneratedAt);
+  // 每个源的 status/count/error 摘要（诊断 AA 失败原因用）
+  assert.equal(data.aaKeyPresent, false); // 本测试未配置 key
+  assert.equal(data.aaProbe, null);       // 无 key 时不做探测
+  assert.ok(Array.isArray(data.sources));
+  assert.ok(data.sources.length >= 4);
+  for (const s of data.sources) {
+    assert.ok(['live', 'empty', 'unavailable'].includes(s.status), s.status);
+    assert.ok(Number.isInteger(s.count));
+  }
+  const aa = data.sources.find((s) => s.id === 'aa-llm');
+  assert.equal(aa.status, 'unavailable'); // 无 key → 未配置错误
+  assert.match(aa.error, /AA_API_KEY/);
+});
+
+await t('GET /healthz（配置了有效 AA key）实时探测接口可达', async () => {
+  const envWithKey = { ...env, AA_API_KEY: 'aa_test_key' };
+  const res = await worker.fetch(new Request('http://localhost/healthz'), envWithKey, ctx);
+  const data = await res.json();
+  assert.equal(data.aaKeyPresent, true);
+  assert.equal(data.aaKeyPrefix, 'aa_t…');
+  assert.ok(data.aaProbe);
+  assert.equal(data.aaProbe.reachable, true);
+  assert.equal(data.aaProbe.http, 200);
+  assert.ok(Number.isInteger(data.aaProbe.items));
+});
+
+await t('GET /healthz（key 无效）探测返回 401', async () => {
+  const envBadKey = { ...env, AA_API_KEY: 'aa_bad' };
+  const res = await worker.fetch(new Request('http://localhost/healthz'), envBadKey, ctx);
+  const data = await res.json();
+  assert.equal(data.aaKeyPresent, true);
+  assert.equal(data.aaProbe.reachable, false);
+  assert.equal(data.aaProbe.http, 401);
 });
 
 await t('未知路径返回 404', async () => {

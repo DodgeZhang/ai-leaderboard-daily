@@ -464,6 +464,42 @@ export function renderPage() {
   }
   footer b { color: var(--text-1); font-weight: 600; }
 
+  /* ---------- 数据源诊断（仅在有源失败时出现） ---------- */
+  .diag {
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px dashed var(--glass-border);
+  }
+  .diag-toggle {
+    border: 0;
+    background: rgba(255, 159, 10, 0.14);
+    color: #b2500a;
+    font-family: inherit;
+    font-size: 11.5px;
+    font-weight: 600;
+    border-radius: 999px;
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: background 0.25s;
+  }
+  .diag-toggle:hover { background: rgba(255, 159, 10, 0.24); }
+  @media (prefers-color-scheme: dark) {
+    .diag-toggle { background: rgba(255, 179, 64, 0.18); color: #ffb340; }
+  }
+  .diag-body {
+    margin-top: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    font-size: 11.5px;
+  }
+  .diag-row { display: flex; gap: 8px; align-items: baseline; }
+  .diag-row b { flex: none; font-weight: 600; color: var(--text-1); }
+  .diag-row .msg { color: var(--text-2); word-break: break-all; }
+  .diag-row .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; align-self: center; }
+  .diag-row .dot.ok { background: #34c759; }
+  .diag-row .dot.bad { background: #ff9f0a; }
+
   .toast {
     position: fixed;
     left: 50%;
@@ -483,6 +519,9 @@ export function renderPage() {
     pointer-events: none;
     transition: opacity 0.3s, transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
     z-index: 10;
+    max-width: min(92vw, 620px);
+    text-align: center;
+    line-height: 1.55;
   }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
@@ -502,7 +541,7 @@ export function renderPage() {
     <div class="title-row">
       <div>
         <h1>AI 排行榜</h1>
-        <p class="subtitle">国内外最权威榜单 · Cloudflare Worker 每日自动抓取</p>
+        <p class="subtitle">获取最权威榜单 · 每日自动抓取</p>
       </div>
       <button class="icon-btn" id="refreshBtn" title="立即刷新"><span>⟳</span></button>
     </div>
@@ -520,6 +559,10 @@ export function renderPage() {
   <main class="grid" id="grid"></main>
 
   <footer class="glass">
+    <div class="diag" id="diag" hidden>
+      <button class="diag-toggle" id="diagToggle">⚠ <span id="diagCount"></span></button>
+      <div class="diag-body" id="diagBody" hidden></div>
+    </div>
     <p><b>数据来源</b>：Arena（Hugging Face 官方数据集 lmarena-ai/leaderboard-dataset）· Artificial Analysis（配置 API Key 后显示）</p>
     <p><b>开源 / 闭源</b>：Arena 各榜按官方 license 字段判定，准确；Artificial Analysis 接口不提供 license，按模型名称/发布方启发式判定，仅供参考。</p>
     <p><b>怎么看</b>：Arena 是真人盲测偏好，Artificial Analysis 是独立实测综合分——口径不同，建议交叉参考；头部模型分差常带置信区间，可能是统计意义上的并列。</p>
@@ -540,6 +583,10 @@ export function renderPage() {
   var refreshBtn = document.getElementById('refreshBtn');
   var seg = document.getElementById('seg');
   var toast = document.getElementById('toast');
+  var diag = document.getElementById('diag');
+  var diagToggle = document.getElementById('diagToggle');
+  var diagBody = document.getElementById('diagBody');
+  var diagCount = document.getElementById('diagCount');
   var coldRetries = 0; // 首次抓取中的自动重试计数
 
   function esc(v) {
@@ -562,6 +609,32 @@ export function renderPage() {
   function statusMeta(s) {
     // 只有拿到数据的榜单才会渲染，状态只可能是 live
     return s.status === 'live' ? { cls: 'live', label: '● 实时' } : null;
+  }
+
+  /** 截断过长的错误信息，便于在 toast / 诊断区展示 */
+  function shortErr(msg, max) {
+    var s = String(msg || '未知错误');
+    return s.length > (max || 60) ? s.slice(0, max || 60) + '…' : s;
+  }
+
+  /**
+   * 数据源诊断区：只在使用原始数据（不受开源/闭源筛选影响）判断，
+   * 有任何一个源没拿到数据时，页脚出现可展开的详情，直接显示失败原因，
+   * 不用再去 /api/data 的 JSON 里翻 error 字段。
+   */
+  function updateDiag(data) {
+    var all = (data && data.sources) || [];
+    var failed = all.filter(function (s) { return !(s.entries && s.entries.length); });
+    if (!failed.length) { diag.hidden = true; diagBody.hidden = true; return; }
+    diag.hidden = false;
+    diagCount.textContent = failed.length + ' 个数据源未就绪 · 查看详情';
+    diagBody.innerHTML = all.map(function (s) {
+      var ok = s.entries && s.entries.length;
+      return '<div class="diag-row"><span class="dot ' + (ok ? 'ok' : 'bad') + '"></span>' +
+        '<b>' + esc(s.name) + '</b><span class="msg">' +
+        (ok ? '正常 · ' + s.entries.length + ' 款' : esc(shortErr(s.error || '暂无数据', 120))) +
+        '</span></div>';
+    }).join('');
   }
 
   function rankCls(r) { return r === 1 ? 'rk rk1' : r === 2 ? 'rk rk2' : r === 3 ? 'rk rk3' : 'rk'; }
@@ -630,10 +703,11 @@ export function renderPage() {
     grid.innerHTML = list.map(cardHtml).join('');
   }
 
-  function showToast(msg) {
+  function showToast(msg, ms) {
     toast.textContent = msg;
     toast.classList.add('show');
-    setTimeout(function () { toast.classList.remove('show'); }, 2600);
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(function () { toast.classList.remove('show'); }, ms || 2600);
   }
 
   function stats(data) {
@@ -653,6 +727,7 @@ export function renderPage() {
         var st = stats(data);
         boardCount.textContent = st.boards ? (st.boards + ' 个榜单 · ' + st.models + ' 款模型') : '';
         render();
+        updateDiag(data);
         // 冷启动：KV 里还没有数据时，后台抓取需要十几秒，自动重试几次
         if (!st.boards && coldRetries < 12) {
           coldRetries++;
@@ -676,17 +751,27 @@ export function renderPage() {
         var st = stats(data);
         boardCount.textContent = st.boards ? (st.boards + ' 个榜单 · ' + st.models + ' 款模型') : '';
         render();
+        updateDiag(data);
         var all = data.sources || [];
-        var live = all.filter(function (s) { return s.entries && s.entries.length; }).length;
-        var failed = all.length - live;
-        showToast('已刷新 · ' + live + '/' + all.length + ' 个榜单获取成功' +
-          (failed ? ' · ' + failed + ' 个失败（详见 /api/data）' : ''));
+        var bad = all.filter(function (s) { return !(s.entries && s.entries.length); });
+        var msg = '已刷新 · ' + (all.length - bad.length) + '/' + all.length + ' 个榜单获取成功';
+        if (bad.length) {
+          // 直接把失败原因显示出来，不用再去 /api/data 翻 JSON
+          msg += '；' + bad.map(function (s) {
+            return s.name + '：' + shortErr(s.error || '暂无数据', 40);
+          }).join('；');
+        }
+        showToast(msg, bad.length ? 9000 : 2600);
       })
       .catch(function () { showToast('刷新失败，请稍后重试'); })
       .then(function () { refreshBtn.classList.remove('spinning'); });
   }
 
   refreshBtn.addEventListener('click', refresh);
+
+  diagToggle.addEventListener('click', function () {
+    diagBody.hidden = !diagBody.hidden;
+  });
 
   seg.addEventListener('click', function (e) {
     var btn = e.target.closest('button');

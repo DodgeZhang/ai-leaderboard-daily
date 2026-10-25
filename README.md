@@ -110,14 +110,14 @@ npx wrangler deploy
 - **自动更新**：cron 设为每天 08:00 UTC（北京时间 16:00）抓取一次，结果写入 KV。
 - **手动刷新**：页面右上角 ⟳ 按钮；或 `curl -X POST https://<域名>/api/refresh`（配了 `REFRESH_TOKEN` 则加 `?token=xxx`）。
 - **查看原始数据**：`curl https://<域名>/api/data`
-- **健康检查**：`curl https://<域名>/healthz`（可配 UptimeRobot 监控）
+- **健康检查 / 故障诊断**：`curl https://<域名>/healthz`——除基本状态外，还报告每个数据源的 `status`/`count`/`error`、`AA_API_KEY` 是否配置，并实时探测一次 AA 接口（可配 UptimeRobot 监控）
 - **实时日志**：`npx wrangler tail`
 
 ## 本地开发
 
 ```bash
 npm run dev        # wrangler dev，本地起服务（KV 用本地模拟）
-npm test           # 22 项冒烟 + 路由测试（mock 数据，无需网络）
+npm test           # 24 项冒烟 + 路由测试（mock 数据，无需网络）
 npm run check      # 语法检查
 ```
 
@@ -179,10 +179,11 @@ A: `wrangler.toml` 里的 id 还是占位符 `REPLACE_WITH_YOUR_KV_NAMESPACE_ID`
 A: 全部条目都已加载，卡片内滚动即可查看；每张卡片标注了收录总数（如「共 87 款」）。布局为宽屏 2×2、移动端单列，4 个榜单固定分布。
 
 **Q: AA 榜不显示？**
-A: 按顺序排查：
+A: 按顺序排查（页面已内置诊断，不用翻 JSON）：
 1. **先点页面右上角 ⟳ 手动刷新**——页面展示的是 KV 里的快照，配置密钥后旧快照里 AA 仍是"未配置"状态，要等下一次 cron（每天 16:00 北京）或手动刷新才会重新抓取；
-2. Worker → Settings → Variables and Secrets 确认 `AA_API_KEY` 已添加（类型 Secret，名称不能错）；
-3. 刷新后看提示「已刷新 · X/4 个榜单获取成功」和 `curl https://<域名>/api/data` 里 `aa-llm` 的 `status` / `error` 字段，会写明具体原因（如 HTTP 401 = key 无效）。
+2. 刷新后**看两处**：① 弹出的提示会直接写明失败原因（如「Artificial Analysis：API 返回 HTTP 401」）；② 页脚出现「⚠ N 个数据源未就绪 · 查看详情」，点开可见每个源的状态和错误；
+3. 还想深挖就访问 `curl https://<域名>/healthz`，它会实时报告：`aaKeyPresent`（密钥配没配）、`aaKeyPrefix`（配对没对）、`aaProbe`（Worker 到 AA 接口通不通：`reachable:false` 说明 Worker 出口被 AA 拦截或网络不通，`http:401` 说明 key 无效）、以及每个数据源的 `status`/`count`/`error`；
+4. 常见原因：密钥名称打错（必须是 `AA_API_KEY`）、类型没选 Secret、加完没手动刷新。
 
 Arena 三分榜无需任何配置，只要它们在显示就说明抓取链路正常。
 

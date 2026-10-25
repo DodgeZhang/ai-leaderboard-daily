@@ -31,6 +31,7 @@ const HF_FILTER_BASE = 'https://datasets-server.huggingface.co/filter';
 const HF_ROWS_BASE = 'https://datasets-server.huggingface.co/rows';
 const AA_API = 'https://artificialanalysis.ai/api/v2/language/models/free';
 const AA_IDX = 'artificial_analysis_intelligence_index';
+export { AA_API };
 
 const MAX_ROWS = 2000; // 单个榜单的翻页安全上限（10 页 filter / 20 页 rows）
 const AA_MAX_PAGES = 6; // AA 分页安全上限（每页 200 条）
@@ -188,9 +189,16 @@ async function fetchArtificialAnalysis(env) {
   }
   const models = [];
   for (let page = 1; page <= AA_MAX_PAGES; page++) {
-    const res = await fetchWithTimeout(`${AA_API}?page=${page}`, {
+    let res = await fetchWithTimeout(`${AA_API}?page=${page}`, {
       headers: { 'x-api-key': key },
     }, 15000);
+    // 限流/服务端抖动：退避 1.5s 重试一次，避免偶发失败整天不显示
+    if (res.status === 429 || res.status >= 500) {
+      await new Promise((r) => setTimeout(r, 1500));
+      res = await fetchWithTimeout(`${AA_API}?page=${page}`, {
+        headers: { 'x-api-key': key },
+      }, 15000);
+    }
     if (!res.ok) throw new Error(`Artificial Analysis API 返回 HTTP ${res.status}（请检查 key 是否有效）`);
     const json = await res.json();
     models.push(...(json.data || []));
