@@ -1,0 +1,20 @@
+{
+  "name": "ai-leaderboard-daily",
+  "version": "1.0.0",
+  "private": true,
+  "description": "每日抓取国内外权威 AI 排行榜（Arena / Artificial Analysis / SuperCLUE / OpenCompass / FlagEval）并用 iOS 液态玻璃风格展示的 Cloudflare Worker",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "check": "node --check src/index.js && node --check src/sources.js && node --check src/frontend.js && node --check scripts/smoke-test.mjs && node --check scripts/worker-route-test.mjs",
+    "test": "node scripts/smoke-test.mjs && node scripts/worker-route-test.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,20 @@
+name = "ai-leaderboard-daily"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+# 每天 08:00 UTC（北京时间 16:00）自动抓取一次榜单
+[triggers]
+crons = ["0 8 * * *"]
+
+# 第一步：npx wrangler kv namespace create LEADERBOARD_KV
+# 然后把返回的 id 填到下面
+[[kv_namespaces]]
+binding = "LEADERBOARD_KV"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+
+# Artificial Analysis 免费 API Key（可选）。
+# 不配置也能运行：AA 榜单会显示引导，其余榜单正常抓取。
+# 用 `npx wrangler secret put AA_API_KEY` 注入，切勿提交进仓库。
+
+# 手动刷新接口 /api/refresh 的访问口令（可选）
+# 用 `npx wrangler secret put REFRESH_TOKEN` 注入；不配则接口公开。
