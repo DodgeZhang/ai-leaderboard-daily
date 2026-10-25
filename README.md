@@ -1,14 +1,16 @@
 # AI 排行榜每日速览 · Cloudflare Worker
 
+> 仓库地址：**https://github.com/DodgeZhang/ai-leaderboard-daily** · 通过 Cloudflare 连接 GitHub 自动部署
+
 一个可部署到 **Cloudflare Workers** 的完整应用：后端每日定时抓取国内外最权威的 AI 排行榜数据，存入 Cloudflare KV；前端为 **iOS 液态玻璃（Liquid Glass）风格**的单页展示网站，深浅色自适应、移动端友好。
 
 ```
-┌──────────────────────────── Cloudflare Worker ────────────────────────────┐
-│  cron 每日 16:00(北京)  →  抓取 7 个榜单  →  写入 KV(data:latest + 归档)   │
-│  GET  /            液态玻璃页面（本文件即后端+前端一体）                    │
-│  GET  /api/data    最新快照 JSON（过期自动后台自愈）                       │
-│  POST /api/refresh 手动刷新（可选 REFRESH_TOKEN 保护）                     │
-└───────────────────────────────────────────────────────────────────────────┘
+ GitHub 仓库 ──git push──▶ Cloudflare Workers Builds ──▶ 线上 Worker
+ (本仓库)                    自动构建部署(约1分钟)            │
+                                                            ├─ cron 每日 16:00(北京) 抓取 7 个榜单 → 写入 KV
+                                                            ├─ GET  /            液态玻璃页面
+                                                            ├─ GET  /api/data    最新快照 JSON(过期自动自愈)
+                                                            └─ POST /api/refresh 手动刷新(可选 REFRESH_TOKEN)
 ```
 
 ## 收录榜单
@@ -27,35 +29,70 @@
 >
 > 关于国内三榜：已分析三者 JS bundle 确认无公开 JSON 接口（OpenCompass 的 `/api/*` 是 SPA 兜底路由，FlagEval 的 `/eval/model-pool/` 同样返回 HTML）。`sources.js` 中保留了探测代码，未来接口开放即自动生效。
 
-## 部署步骤（约 5 分钟）
+## 部署：Cloudflare 连接 GitHub（推荐）
 
-前置：Node.js ≥ 20、一个 Cloudflare 账号（免费计划即可）。
+代码已上传至 **https://github.com/DodgeZhang/ai-leaderboard-daily**。连接 Cloudflare 后，每次 `git push` 到 `main` 分支都会自动构建并部署，无需再手动操作。
+
+前置：一个 Cloudflare 账号（免费计划即可）。
+
+### 1. 创建 KV 命名空间
+
+Cloudflare Dashboard → **Storage & Databases → Workers KV → Create a namespace**，名称填 `LEADERBOARD_KV`。创建后复制它的 **Namespace ID**，填入 `wrangler.toml`：
+
+```toml
+[[kv_namespaces]]
+binding = "LEADERBOARD_KV"
+id = "你的真实命名空间ID"
+```
+
+在本地仓库目录提交并推送这一改动：
 
 ```bash
-# 1. 进入项目并安装依赖
-cd ai-leaderboard
+git add wrangler.toml && git commit -m "chore: 填入 KV 命名空间 ID" && git push
+```
+
+> KV ID 必须是真实值，否则 Cloudflare 部署会报 "KV namespace id is invalid"。
+
+### 2. 连接 GitHub 仓库
+
+Cloudflare Dashboard → **Workers & Pages → Create → Import a repository**：
+
+1. 点击 **Connect to GitHub** 完成授权（首次需允许 Cloudflare 访问指定仓库）
+2. 选择仓库 `DodgeZhang/ai-leaderboard-daily`
+3. 构建设置保持默认：
+   - **Build command**：留空（本项目无构建步骤）
+   - **Deploy command**：`npx wrangler deploy`（默认值；wrangler 版本已由 package.json 锁定）
+4. 点击 **Save and Deploy**，约 1 分钟后部署完成，得到 `https://ai-leaderboard-daily.<你的子域>.workers.dev`
+
+### 3. 配置密钥（可选）
+
+Worker 页面 → **Settings → Variables and Secrets → Add**：
+
+| 名称 | 说明 |
+|---|---|
+| `AA_API_KEY` | Artificial Analysis 免费 API Key（artificialanalysis.ai 注册账号 → API Keys，免费 1000 次/天）；不配则 AA 榜显示引导 |
+| `REFRESH_TOKEN` | 手动刷新接口 `/api/refresh` 的访问口令；不配则接口公开 |
+
+保存后即时生效，无需重新部署。
+
+### 4. 之后的日常
+
+- **自动部署**：`git push origin main` → Cloudflare 自动构建部署（约 1 分钟），可在 Workers & Pages → Deployments 查看每次部署记录
+- **预览部署**：推送到其他分支或发 PR，Cloudflare 会生成预览链接，不影响线上
+- **定时任务**：cron 每天 08:00 UTC（北京时间 16:00）自动抓取，随 wrangler.toml 部署生效
+- **运行日志**：Worker → Logs 实时查看，或本地 `npx wrangler tail`
+
+## 备选：命令行部署（本地调试用）
+
+```bash
 npm install
-
-# 2. 登录 Cloudflare（会打开浏览器授权）
-npx wrangler login
-
-# 3. 创建 KV 命名空间（数据缓存用）
-npx wrangler kv namespace create LEADERBOARD_KV
-# 输出形如： id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-# 把它填进 wrangler.toml 中 [[kv_namespaces]] 的 id 字段
-
-# 4.（可选）配置 Artificial Analysis 免费 API Key
-#    申请：artificialanalysis.ai 注册账号 → API Keys（免费 1000 次/天）
-npx wrangler secret put AA_API_KEY
-
-# 5.（可选）给手动刷新接口加口令
-npx wrangler secret put REFRESH_TOKEN
-
-# 6. 部署
+npx wrangler login                                   # 浏览器授权 Cloudflare
+npx wrangler kv namespace create LEADERBOARD_KV      # 把输出的 id 填进 wrangler.toml
+npx wrangler secret put AA_API_KEY                   # 可选
 npx wrangler deploy
 ```
 
-部署完成后会得到 `https://ai-leaderboard-daily.<你的子域>.workers.dev`，打开即见液态玻璃页面。
+与 GitHub 连接方式二选一即可；连接 GitHub 后通常不需要再手动 deploy。
 
 ## 日常使用
 
@@ -123,6 +160,9 @@ ai-leaderboard/
 
 **Q: 部署后页面显示"暂无法自动获取"？**
 A: 打开 `/healthz` 看 `lastGeneratedAt`；点页面上的 ⟳ 手动触发一次抓取。cron 任务在部署后可能需要几分钟生效。
+
+**Q: Cloudflare 部署失败，提示 "KV namespace id is invalid"？**
+A: `wrangler.toml` 里的 id 还是占位符 `REPLACE_WITH_YOUR_KV_NAMESPACE_ID`。按「部署」第 1 步在 Dashboard 创建命名空间并填入真实 ID，`git push` 后 Cloudflare 会自动重新部署。
 
 **Q: HF 数据集接口报错？**
 A: 确认 Worker 能访问 `datasets-server.huggingface.co`（默认可以）。若接口结构变动，`fetchArenaBoard` 会抛错并降级，不会白屏。

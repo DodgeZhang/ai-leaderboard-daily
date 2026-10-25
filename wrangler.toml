@@ -3,18 +3,25 @@ main = "src/index.js"
 compatibility_date = "2026-10-01"
 
 # 每天 08:00 UTC（北京时间 16:00）自动抓取一次榜单
+# 定时任务随本文件一起被 Cloudflare 部署，连接 GitHub 后自动生效
 [triggers]
 crons = ["0 8 * * *"]
 
-# 第一步：npx wrangler kv namespace create LEADERBOARD_KV
-# 然后把返回的 id 填到下面
+# KV 命名空间：部署前必须先创建并填入真实 ID，否则部署报 "KV namespace id is invalid"
+# 方式一（Dashboard，GitHub 连接部署推荐）：
+#   Storage & Databases → Workers KV → Create a namespace → 名称 LEADERBOARD_KV
+#   复制 Namespace ID 填到下面，然后 git push（Cloudflare 自动部署）
+# 方式二（命令行）：
+#   npx wrangler kv namespace create LEADERBOARD_KV
 [[kv_namespaces]]
 binding = "LEADERBOARD_KV"
 id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
 
 # Artificial Analysis 免费 API Key（可选）。
 # 不配置也能运行：AA 榜单会显示引导，其余榜单正常抓取。
-# 用 `npx wrangler secret put AA_API_KEY` 注入，切勿提交进仓库。
+# 配置位置（GitHub 连接部署）：Worker → Settings → Variables and Secrets → Add
+# 或命令行：npx wrangler secret put AA_API_KEY
+# 切勿把密钥提交进仓库。
 
-# 手动刷新接口 /api/refresh 的访问口令（可选）
-# 用 `npx wrangler secret put REFRESH_TOKEN` 注入；不配则接口公开。
+# 手动刷新接口 /api/refresh 的访问口令（可选，同上方式配置）
+# 不配则接口公开。
