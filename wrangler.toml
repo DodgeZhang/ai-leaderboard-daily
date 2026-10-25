@@ -15,7 +15,7 @@ crons = ["0 8 * * *"]
 #   npx wrangler kv namespace create LEADERBOARD_KV
 [[kv_namespaces]]
 binding = "LEADERBOARD_KV"
-id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+id = "4b622256e1464e7a8e7a7716e7a9f14f"
 
 # Artificial Analysis 免费 API Key（可选）。
 # 不配置也能运行：AA 榜单会显示引导，其余榜单正常抓取。
