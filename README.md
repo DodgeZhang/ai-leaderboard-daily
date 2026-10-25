@@ -24,6 +24,8 @@
 | Arena · 搜索榜 | arena.ai | ✅ 实时（同上） |
 | Artificial Analysis | artificialanalysis.ai | 🔑 配置 `AA_API_KEY` 后实时（官方免费 API）；未配置时该榜单不显示 |
 
+所有榜单展示**全部条目**（不截断前 N 名）：宽屏下 4 个榜单按 2×2 网格排布，单榜条目过多时在卡片内滚动，每张卡片标注收录总数，顶部显示「N 个榜单 · M 款模型」统计。
+
 > 关于 Arena 数据：Arena 官方已将全部榜单历史发布为 Hugging Face 数据集（lmarena-ai/leaderboard-dataset），本 Worker 通过 datasets-server REST API 读取，是官方一手数据，无需渲染网页、无需密钥。
 >
 > 关于国内榜单（SuperCLUE / OpenCompass 司南 / FlagEval 天秤）：2026-10-26 再次全量探测确认，三家官网均为前端动态渲染的 SPA，所有候选接口只返回 HTML，没有公开数据接口，无法自动获取，故未收录。页面只展示成功抓取的榜单，不做占位。
@@ -63,16 +65,20 @@ Cloudflare Dashboard → **Workers & Pages → Create → Import a repository**�
    - **Deploy command**：`npx wrangler deploy`（默认值；wrangler 版本已由 package.json 锁定）
 4. 点击 **Save and Deploy**，约 1 分钟后部署完成，得到 `https://ai-leaderboard-daily.<你的子域>.workers.dev`
 
-### 3. 配置密钥（可选）
+### 3. 配置密钥（Artificial Analysis 榜需要）
 
 Worker 页面 → **Settings → Variables and Secrets → Add**：
 
-| 名称 | 说明 |
-|---|---|
-| `AA_API_KEY` | Artificial Analysis 免费 API Key（artificialanalysis.ai 注册账号 → API Keys，免费 1000 次/天）；不配则 AA 榜不显示 |
-| `REFRESH_TOKEN` | 手动刷新接口 `/api/refresh` 的访问口令；不配则接口公开 |
+| 名称 | 类型 | 说明 |
+|---|---|---|
+| `AA_API_KEY` | **Secret（加密）** | Artificial Analysis 免费 API Key（artificialanalysis.ai 注册账号 → API Keys，免费 1000 次/天）；**不配则 AA 榜整个不显示** |
+| `REFRESH_TOKEN` | Secret（加密） | 手动刷新接口 `/api/refresh` 的访问口令；不配则接口公开 |
 
-保存后即时生效，无需重新部署。
+保存后即时生效，无需重新部署。本地开发则把 key 写进项目根目录的 `.dev.vars`（已被 .gitignore 忽略，不会提交）：
+
+```
+AA_API_KEY=aa_xxxxxxxxxxxxxxxx
+```
 
 ### 4. 之后的日常
 
@@ -137,7 +143,7 @@ ai-leaderboard/
 {
   id: 'my-board',
   name: '某个新榜单',
-  category: 'global',            // 或 'china'
+  category: 'global',
   org: '发布方',
   url: 'https://example.com/leaderboard',
   metric: '指标说明',
@@ -146,14 +152,14 @@ ai-leaderboard/
   fetcher: async () => {
     const res = await fetchWithTimeout('https://example.com/api/board.json');
     const json = await res.json();
-    return json.items.slice(0, 10).map((m, i) => ({
+    return json.items.map((m, i) => ({   // 返回全部条目即可，前端不截断
       rank: i + 1, model: m.name, org: m.org, score: m.score, ci: null, license: null,
     }));
   },
 }
 ```
 
-页面只渲染成功拿到数据的榜单卡片；抓取失败或未配置密钥的榜单不占版面，也不影响其他卡片。
+页面只渲染成功拿到数据的榜单卡片；抓取失败或未配置密钥的榜单不占版面，也不影响其他卡片。条目很多时卡片内会出现滚动条，属正常现象。
 
 ## 常见问题
 
@@ -162,6 +168,12 @@ A: 首次访问时 KV 还是空的，Worker 会立即在后台抓取，页面每
 
 **Q: Cloudflare 部署失败，提示 "KV namespace id is invalid"？**
 A: `wrangler.toml` 里的 id 还是占位符 `REPLACE_WITH_YOUR_KV_NAMESPACE_ID`。按「部署」第 1 步在 Dashboard 创建命名空间并填入真实 ID，`git push` 后 Cloudflare 会自动重新部署。
+
+**Q: 某个榜单条目特别多，卡片有点长？**
+A: 全部条目都已加载，卡片内滚动即可查看；每张卡片标注了收录总数（如「共 87 款」）。布局为宽屏 2×2、移动端单列，4 个榜单固定分布。
+
+**Q: AA 榜不显示？**
+A: AA 是唯一需要密钥的榜单：Worker → Settings → Variables and Secrets 确认 `AA_API_KEY` 已添加且类型为 Secret。Arena 三分榜无需任何配置，只要它们有显示就说明抓取链路正常。
 
 **Q: HF 数据集接口报错？**
 A: 确认 Worker 能访问 `datasets-server.huggingface.co`（默认可以）。若接口结构变动，`fetchArenaBoard` 会抛错，该卡片不显示，不会白屏。

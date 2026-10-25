@@ -179,14 +179,14 @@ export function renderPage() {
   .icon-btn.spinning span { display: inline-block; animation: spin 0.9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* ---------- 卡片网格 ---------- */
+  /* ---------- 卡片网格：宽屏 2×2（正好容纳 4 个榜单） ---------- */
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+    grid-template-columns: 1fr;
     gap: 20px;
   }
-  @media (max-width: 420px) {
-    .grid { grid-template-columns: 1fr; }
+  @media (min-width: 760px) {
+    .grid { grid-template-columns: repeat(2, 1fr); }
   }
 
   .card {
@@ -195,6 +195,7 @@ export function renderPage() {
     flex-direction: column;
     position: relative;
     overflow: hidden;
+    min-height: 0; /* 允许 grid 子项收缩，卡片内滚动才能生效 */
     animation: rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
     transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s;
   }
@@ -250,16 +251,41 @@ export function renderPage() {
     font-size: 12.5px;
     color: var(--text-2);
     font-weight: 500;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .count {
+    flex: none;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-2);
+    background: rgba(120, 120, 128, 0.12);
+    border-radius: 999px;
+    padding: 2.5px 9px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
 
-  /* ---------- 榜单列表 ---------- */
+  /* ---------- 榜单列表（条目全量展示，超长时卡片内滚动） ---------- */
   .list {
     list-style: none;
     margin-top: 12px;
     display: flex;
     flex-direction: column;
     gap: 6px;
+    max-height: min(58vh, 620px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(120, 120, 128, 0.35) transparent;
+    padding-right: 4px;
   }
+  .list::-webkit-scrollbar { width: 4px; }
+  .list::-webkit-scrollbar-track { background: transparent; }
+  .list::-webkit-scrollbar-thumb { background: rgba(120, 120, 128, 0.35); border-radius: 4px; }
   .list li {
     display: flex;
     align-items: center;
@@ -447,6 +473,7 @@ export function renderPage() {
     </div>
     <div class="meta-row">
       <span class="meta-pill" id="updatedAt">加载中…</span>
+      <span class="meta-pill" id="boardCount"></span>
     </div>
   </header>
 
@@ -468,6 +495,7 @@ export function renderPage() {
   var state = { data: null };
   var grid = document.getElementById('grid');
   var updatedAt = document.getElementById('updatedAt');
+  var boardCount = document.getElementById('boardCount');
   var refreshBtn = document.getElementById('refreshBtn');
   var toast = document.getElementById('toast');
   var coldRetries = 0; // 首次抓取中的自动重试计数
@@ -517,10 +545,12 @@ export function renderPage() {
       ? '<ol class="list">' + s.entries.map(rowHtml).join('') + '</ol>'
       : '';
     var pill = st ? '<span class="pill ' + st.cls + '">' + esc(st.label) + '</span>' : '';
+    var n = (s.entries && s.entries.length) || 0;
     return '<section class="card glass" style="--accent:' + esc(s.accent) + ';animation-delay:' + (i * 60) + 'ms">' +
       '<div class="card-top"><div class="card-title"><h2>' + esc(s.name) + '</h2>' +
       '<span class="org">' + esc(s.org) + '</span></div>' + pill + '</div>' +
-      '<p class="metric">' + esc(s.metric) + '</p>' + list +
+      '<p class="metric"><span>' + esc(s.metric) + '</span>' +
+      '<span class="count">共 ' + n + ' 款</span></p>' + list +
       '<div class="card-foot"><span class="note">' + esc(s.desc || '') + '</span>' +
       '<a class="go" href="' + esc(s.url) + '" target="_blank" rel="noopener">官网 ↗</a></div>' +
       '</section>';
@@ -552,16 +582,24 @@ export function renderPage() {
     setTimeout(function () { toast.classList.remove('show'); }, 2600);
   }
 
+  function stats(data) {
+    var all = data.sources || [];
+    var live = all.filter(function (s) { return s.entries && s.entries.length; });
+    var models = live.reduce(function (sum, s) { return sum + s.entries.length; }, 0);
+    return { boards: live.length, models: models };
+  }
+
   function load() {
     fetch('/api/data', { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (data) {
         state.data = data;
         updatedAt.textContent = '更新于 ' + relTime(data.generatedAt);
+        var st = stats(data);
+        boardCount.textContent = st.boards ? (st.boards + ' 个榜单 · ' + st.models + ' 款模型') : '';
         render();
         // 冷启动：KV 里还没有数据时，后台抓取需要十几秒，自动重试几次
-        var live = (data.sources || []).filter(function (s) { return s.entries && s.entries.length; }).length;
-        if (!live && coldRetries < 12) {
+        if (!st.boards && coldRetries < 12) {
           coldRetries++;
           setTimeout(load, 3000);
         }
@@ -580,6 +618,8 @@ export function renderPage() {
         state.data = data;
         coldRetries = 0;
         updatedAt.textContent = '更新于 ' + relTime(data.generatedAt);
+        var st = stats(data);
+        boardCount.textContent = st.boards ? (st.boards + ' 个榜单 · ' + st.models + ' 款模型') : '';
         render();
         var all = data.sources || [];
         var live = all.filter(function (s) { return s.entries && s.entries.length; }).length;

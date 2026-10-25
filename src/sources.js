@@ -22,7 +22,7 @@
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 
-const TOP_N = 10; // 每张卡片展示前 10 名
+const MAX_ROWS = 1000; // HF 翻页安全上限（每榜最多 10 页，控制单次调用的 subrequest 数量）
 const HF_ROWS_BASE = 'https://datasets-server.huggingface.co/rows';
 
 const r1 = (n) => Math.round(n * 10) / 10;
@@ -44,7 +44,7 @@ export async function fetchWithTimeout(url, opts = {}, ms = 12000) {
 }
 
 /**
- * 读取 Arena 官方 Hugging Face 数据集的某个榜单
+ * 读取 Arena 官方 Hugging Face 数据集的某个榜单（返回全部条目，不截断）
  * @param config    数据集子集，如 text_style_control / agent / search_style_control
  * @param category  行内分类，取 overall 总榜
  * @param kind      'bt' = Bradley-Terry 评分（rating 字段）；'ips' = Agent 榜 IPS 得分（score 字段）
@@ -54,7 +54,7 @@ async function fetchArenaBoard(config, category, kind) {
     `${HF_ROWS_BASE}?dataset=lmarena-ai%2Fleaderboard-dataset` +
     `&config=${encodeURIComponent(config)}&split=latest`;
   const collected = [];
-  for (let offset = 0; offset < 500; offset += 100) {
+  for (let offset = 0; offset < MAX_ROWS; offset += 100) {
     const res = await fetchWithTimeout(`${base}&offset=${offset}&length=100`);
     if (!res.ok) throw new Error(`Hugging Face datasets-server 返回 HTTP ${res.status}`);
     const json = await res.json();
@@ -67,7 +67,7 @@ async function fetchArenaBoard(config, category, kind) {
   }
   if (!collected.length) throw new Error(`Arena 数据集中没有 category=${category} 的数据`);
   collected.sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
-  return collected.slice(0, TOP_N).map((row) => {
+  return collected.map((row) => {
     if (kind === 'ips') {
       const half = row.score_ci_lower != null ? (row.score_ci_upper - row.score_ci_lower) / 2 : null;
       return {
@@ -106,7 +106,7 @@ async function fetchArtificialAnalysis(env) {
   const models = (json.data || []).filter((m) => m.evaluations && m.evaluations[idx] != null);
   if (!models.length) throw new Error('AA API 返回数据中找不到智能指数字段');
   models.sort((a, b) => b.evaluations[idx] - a.evaluations[idx]);
-  return models.slice(0, TOP_N).map((m, i) => ({
+  return models.map((m, i) => ({
     rank: i + 1,
     model: m.name,
     org: (m.model_creator && m.model_creator.name) || '',

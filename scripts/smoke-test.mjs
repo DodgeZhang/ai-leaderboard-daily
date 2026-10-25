@@ -110,10 +110,11 @@ const snap = await refreshAll({});
 
 await ok('返回 4 个数据源（仅收录可自动获取的榜单）', () => assert.equal(snap.sources.length, 4));
 
-await ok('Arena 文本榜：翻页 + 分类过滤 + 排序 + 前 10', () => {
+await ok('Arena 文本榜：翻页 + 分类过滤 + 排序 + 全部条目（不截断）', () => {
   const s = snap.sources.find((x) => x.id === 'arena-text');
   assert.equal(s.status, 'live');
-  assert.equal(s.entries.length, 10);
+  // mock 共 130 行，其中 43 行 category=coding 被过滤，应剩 87 行全部返回
+  assert.equal(s.entries.length, 87);
   assert.ok(s.entries.every((e) => Number.isInteger(e.rank)));
   assert.ok(s.entries.every((e) => typeof e.score === 'number'));
   assert.ok(s.entries.every((e) => e.model && e.org));
@@ -124,17 +125,18 @@ await ok('Arena 文本榜：翻页 + 分类过滤 + 排序 + 前 10', () => {
   assert.equal(s.entries[0].rank, 1);
 });
 
-await ok('Arena Agent 榜：IPS 百分比格式', () => {
+await ok('Arena Agent 榜：IPS 百分比格式 + 全部条目', () => {
   const s = snap.sources.find((x) => x.id === 'arena-agent');
   assert.equal(s.status, 'live');
+  assert.ok(s.entries.length > 10, '不应截断为前 10');
   assert.ok(s.entries[0].score.endsWith('%'));
   assert.match(s.entries[0].score, /^\d+(\.\d+)?%$/);
 });
 
-await ok('Arena 搜索榜：实时数据', () => {
+await ok('Arena 搜索榜：实时数据 + 全部条目', () => {
   const s = snap.sources.find((x) => x.id === 'arena-search');
   assert.equal(s.status, 'live');
-  assert.ok(s.entries.length > 0);
+  assert.ok(s.entries.length > 10, '不应截断为前 10');
 });
 
 await ok('AA 无 key → unavailable + 引导文案', () => {
@@ -188,8 +190,10 @@ await ok('前端页面包含关键结构与液态玻璃样式', () => {
   const html = renderPage();
   for (const marker of [
     '<!DOCTYPE html>', 'backdrop-filter', 'prefers-color-scheme: dark',
-    'id="grid"', '/api/data', '/api/refresh',
+    'id="grid"', 'id="boardCount"', '/api/data', '/api/refresh',
     'lmarena-ai/leaderboard-dataset',
+    'grid-template-columns: repeat(2, 1fr)',   // 宽屏 2×2 布局
+    'max-height: min(58vh, 620px)',            // 卡片内滚动
     'prefers-reduced-motion',
   ]) {
     assert.ok(html.includes(marker), 'missing: ' + marker);

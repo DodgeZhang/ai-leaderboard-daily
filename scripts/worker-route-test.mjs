@@ -125,7 +125,7 @@ await t('GET /api/data（KV 有数据）返回实时快照', async () => {
   const data = await res.json();
   const text = data.sources.find((s) => s.id === 'arena-text');
   assert.equal(text.status, 'live');
-  assert.equal(text.entries.length, 10); // TOP_N
+  assert.equal(text.entries.length, 30); // mock 30 行全部返回（不截断）
   assert.equal(text.entries[0].model, 'text-model-1');
   assert.equal(text.entries[0].rank, 1);
 });
