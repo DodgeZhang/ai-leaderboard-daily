@@ -233,18 +233,12 @@ async function fetchArtificialAnalysis(env) {
 /* 数据源定义                                                          */
 /* ------------------------------------------------------------------ */
 
+/**
+ * 数据源定义。
+ * 数组顺序即页面展示顺序（前端另有 BOARD_ORDER 兜底，旧快照也是这个顺序）：
+ * Agent 榜 → Artificial Analysis → 文本总榜 → 搜索榜。
+ */
 export const SOURCES = [
-  {
-    id: 'arena-text',
-    name: 'Arena · 文本总榜',
-    category: 'global',
-    org: 'Arena（UC Berkeley 系）',
-    url: 'https://arena.ai/leaderboard',
-    metric: 'Arena Score · 真人盲测投票',
-    accent: '#0A84FF',
-    desc: '全球用户匿名两两对战投票，最接近“用起来哪个好”的金标准',
-    fetcher: () => fetchArenaBoard('text_style_control', 'overall', 'bt'),
-  },
   {
     id: 'arena-agent',
     name: 'Arena · Agent 榜',
@@ -257,17 +251,6 @@ export const SOURCES = [
     fetcher: () => fetchArenaBoard('agent', 'overall', 'ips'),
   },
   {
-    id: 'arena-search',
-    name: 'Arena · 搜索榜',
-    category: 'global',
-    org: 'Arena（UC Berkeley 系）',
-    url: 'https://arena.ai/leaderboard',
-    metric: 'Arena Score · 联网搜索能力',
-    accent: '#64D2FF',
-    desc: '对比各模型的联网检索与答案综合能力',
-    fetcher: () => fetchArenaBoard('search_style_control', 'overall', 'bt'),
-  },
-  {
     id: 'aa-llm',
     name: 'Artificial Analysis',
     category: 'global',
@@ -277,6 +260,28 @@ export const SOURCES = [
     accent: '#FF9F0A',
     desc: '统一条件独立实测，同时给出价格与速度，适合看“性价比”；开源判定为名称启发式，仅供参考',
     fetcher: fetchArtificialAnalysis,
+  },
+  {
+    id: 'arena-text',
+    name: 'Arena · 文本总榜',
+    category: 'global',
+    org: 'Arena（UC Berkeley 系）',
+    url: 'https://arena.ai/leaderboard',
+    metric: 'Arena Score · 真人盲测投票',
+    accent: '#0A84FF',
+    desc: '全球用户匿名两两对战投票，最接近“用起来哪个好”的金标准',
+    fetcher: () => fetchArenaBoard('text_style_control', 'overall', 'bt'),
+  },
+  {
+    id: 'arena-search',
+    name: 'Arena · 搜索榜',
+    category: 'global',
+    org: 'Arena（UC Berkeley 系）',
+    url: 'https://arena.ai/leaderboard',
+    metric: 'Arena Score · 联网搜索能力',
+    accent: '#64D2FF',
+    desc: '对比各模型的联网检索与答案综合能力',
+    fetcher: () => fetchArenaBoard('search_style_control', 'overall', 'bt'),
   },
 ];
 

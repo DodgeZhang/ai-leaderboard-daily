@@ -5,6 +5,34 @@
  *          + iOS 分段控件 + 深浅色自适应 + 弹簧动效。
  */
 
+/**
+ * 榜单条目组合筛选：开源/闭源 + 关键字 + 厂商多选（可叠加）。
+ * 纯函数，无副作用——既供页面脚本使用（函数源码经 toString() 注入页面），
+ * 也供单元测试直接 import 验证。
+ *
+ * @param entries  某榜单的条目数组
+ * @param opts     { lic: 'all'|'open'|'closed', kw: string, orgs: string[] }
+ * @returns 新数组（不过滤原数据）
+ */
+export function applyEntryFilters(entries, opts) {
+  var o = opts || {};
+  var lic = o.lic || 'all';
+  var kw = String(o.kw || '').trim().toLowerCase();
+  var orgs = o.orgs || [];
+  if (!Array.isArray(entries)) return [];
+  return entries.filter(function (e) {
+    if (lic === 'open' && !e.open) return false;
+    if (lic === 'closed' && e.open) return false;
+    if (orgs.length && orgs.indexOf(e.org) < 0) return false;
+    if (kw) {
+      var name = String(e.model || '').toLowerCase();
+      var org = String(e.org || '').toLowerCase();
+      if (name.indexOf(kw) < 0 && org.indexOf(kw) < 0) return false;
+    }
+    return true;
+  });
+}
+
 export function renderPage() {
   return `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -159,6 +187,133 @@ export function renderPage() {
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
+
+  /* ---------- 筛选行：搜索框 + 厂商多选 + 开源/闭源 ---------- */
+  .filter-row {
+    margin-top: 14px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .search-box {
+    flex: 1 1 230px;
+    min-width: 190px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    background: var(--seg-bg);
+    border-radius: 12px;
+    padding: 0 11px;
+    transition: box-shadow 0.25s;
+  }
+  .search-box:focus-within {
+    box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.45);
+  }
+  .search-box .s-ico { font-size: 12px; opacity: 0.55; flex: none; }
+  .search-box input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    font: inherit;
+    font-size: 13px;
+    color: var(--text-1);
+  }
+  .search-box input::placeholder { color: var(--text-2); opacity: 0.85; }
+  .s-clear {
+    flex: none;
+    border: 0;
+    background: rgba(120, 120, 128, 0.2);
+    color: var(--text-2);
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    font-size: 11px;
+    line-height: 1;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    padding: 0;
+  }
+  .s-clear:hover { background: rgba(120, 120, 128, 0.35); color: var(--text-1); }
+
+  /* 厂商多选下拉 */
+  .multi { position: relative; }
+  .multi-toggle {
+    height: 34px;
+    border: 0;
+    background: var(--seg-bg);
+    border-radius: 12px;
+    padding: 0 12px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-2);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    white-space: nowrap;
+    transition: color 0.25s;
+  }
+  .multi-toggle:hover, .multi-toggle.active { color: var(--text-1); }
+  .multi-toggle .caret { font-style: normal; font-size: 9px; opacity: 0.7; }
+  .multi-panel {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    width: 252px;
+    max-height: 348px;
+    display: flex;
+    flex-direction: column;
+    background: var(--glass-bg-strong);
+    -webkit-backdrop-filter: blur(24px);
+    backdrop-filter: blur(24px);
+    border: 1px solid var(--glass-border);
+    border-radius: 14px;
+    box-shadow: var(--glass-shadow);
+    z-index: 30;
+    padding: 8px;
+    animation: pop 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes pop { from { opacity: 0; transform: translateY(-4px) scale(0.98); } }
+  .multi-panel input.m-filter {
+    width: 100%;
+    border: 0;
+    outline: 0;
+    background: var(--seg-bg);
+    border-radius: 9px;
+    padding: 7px 10px;
+    font: inherit;
+    font-size: 12.5px;
+    color: var(--text-1);
+    margin-bottom: 6px;
+  }
+  .multi-panel input.m-filter::placeholder { color: var(--text-2); }
+  .multi-list { overflow-y: auto; overscroll-behavior: contain; }
+  .multi-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 8px;
+    border-radius: 9px;
+    font-size: 13px;
+    color: var(--text-1);
+    cursor: pointer;
+    user-select: none;
+  }
+  .multi-item:hover { background: var(--row-hover); }
+  .multi-item input { accent-color: #0a84ff; margin: 0; flex: none; }
+  .multi-item .cnt {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .multi-empty { padding: 12px 8px; font-size: 12px; color: var(--text-2); text-align: center; }
 
   /* 圆形刷新按钮 */
   .icon-btn {
@@ -548,6 +703,21 @@ export function renderPage() {
     <div class="meta-row">
       <span class="meta-pill" id="updatedAt">加载中…</span>
       <span class="meta-pill" id="boardCount"></span>
+    </div>
+    <div class="filter-row">
+      <div class="search-box">
+        <span class="s-ico">🔍</span>
+        <input id="searchInput" type="text" placeholder="搜索模型 / 厂商…" autocomplete="off" />
+        <button class="s-clear" id="searchClear" hidden title="清空">✕</button>
+      </div>
+      <div class="multi" id="orgFilter">
+        <button class="multi-toggle" id="orgToggle"><span id="orgToggleLabel">厂商：全部</span><i class="caret">▾</i></button>
+        <div class="multi-panel" id="orgPanel" hidden>
+          <input class="m-filter" id="orgSearch" type="text" placeholder="筛选厂商…" autocomplete="off" />
+          <label class="multi-item"><input type="checkbox" id="orgAll" checked /><span>全部厂商</span></label>
+          <div class="multi-list" id="orgList"></div>
+        </div>
+      </div>
       <div class="seg" id="seg">
         <button data-lic="all" class="active">全部</button>
         <button data-lic="open">仅开源</button>
@@ -576,7 +746,14 @@ export function renderPage() {
 (function () {
   'use strict';
 
-  var state = { data: null, lic: 'all' };
+  /* 组合筛选纯函数（由模块顶层注入，与单元测试共用同一实现） */
+  var filterEntries = ${applyEntryFilters};
+
+  /* 榜单展示顺序：Agent 榜 → Artificial Analysis → 文本总榜 → 搜索榜
+     （即使 KV 里是旧顺序的快照，也按这个顺序渲染） */
+  var BOARD_ORDER = ['arena-agent', 'aa-llm', 'arena-text', 'arena-search'];
+
+  var state = { data: null, lic: 'all', kw: '', orgs: [], orgQuery: '' };
   var grid = document.getElementById('grid');
   var updatedAt = document.getElementById('updatedAt');
   var boardCount = document.getElementById('boardCount');
@@ -587,6 +764,15 @@ export function renderPage() {
   var diagToggle = document.getElementById('diagToggle');
   var diagBody = document.getElementById('diagBody');
   var diagCount = document.getElementById('diagCount');
+  var searchInput = document.getElementById('searchInput');
+  var searchClear = document.getElementById('searchClear');
+  var orgFilter = document.getElementById('orgFilter');
+  var orgToggle = document.getElementById('orgToggle');
+  var orgToggleLabel = document.getElementById('orgToggleLabel');
+  var orgPanel = document.getElementById('orgPanel');
+  var orgSearch = document.getElementById('orgSearch');
+  var orgAll = document.getElementById('orgAll');
+  var orgList = document.getElementById('orgList');
   var coldRetries = 0; // 首次抓取中的自动重试计数
 
   function esc(v) {
@@ -677,27 +863,64 @@ export function renderPage() {
     return h;
   }
 
-  /** 按开源/闭源筛选条目（返回副本，不破坏原始数据） */
-  function filterEntries(s) {
-    if (state.lic === 'all' || !s.entries) return s;
-    var want = state.lic === 'open';
-    return Object.assign({}, s, {
-      entries: s.entries.filter(function (e) { return Boolean(e.open) === want; }),
+  /** 收集全部厂商及条目数（按条目数降序，同名按字母序） */
+  function collectOrgs() {
+    var map = {};
+    ((state.data && state.data.sources) || []).forEach(function (s) {
+      (s.entries || []).forEach(function (e) {
+        var o = e.org || '未知';
+        map[o] = (map[o] || 0) + 1;
+      });
     });
+    return Object.keys(map)
+      .map(function (o) { return { name: o, count: map[o] }; })
+      .sort(function (a, b) { return b.count - a.count || a.name.localeCompare(b.name); });
+  }
+
+  /** 渲染厂商多选面板（含面板内关键字过滤与已选状态） */
+  function renderOrgList() {
+    var q = state.orgQuery.trim().toLowerCase();
+    var orgs = collectOrgs().filter(function (o) {
+      return !q || o.name.toLowerCase().indexOf(q) >= 0;
+    });
+    orgList.innerHTML = orgs.map(function (o) {
+      return '<label class="multi-item"><input type="checkbox" data-org="' + esc(o.name) + '"' +
+        (state.orgs.indexOf(o.name) >= 0 ? ' checked' : '') + ' /><span>' + esc(o.name) + '</span>' +
+        '<span class="cnt">' + o.count + '</span></label>';
+    }).join('') || '<div class="multi-empty">无匹配厂商</div>';
+    orgAll.checked = state.orgs.length === 0;
+    orgToggleLabel.textContent = state.orgs.length === 0
+      ? '厂商：全部'
+      : '厂商：' + (state.orgs.length === 1 ? state.orgs[0] : '已选 ' + state.orgs.length + ' 家');
+    orgToggle.classList.toggle('active', state.orgs.length > 0);
   }
 
   function render() {
     if (!state.data) { grid.innerHTML = skeleton(4); return; }
-    // 只渲染成功拿到数据的榜单；拿不到的（未配置 key / 抓取失败）不占版面
+    // 组合筛选（开源/闭源 + 关键字 + 厂商多选，可叠加）；只渲染筛完仍有条目的榜单
     var list = (state.data.sources || [])
-      .map(filterEntries)
-      .filter(function (s) { return s.entries && s.entries.length > 0; });
+      .map(function (s) {
+        return Object.assign({}, s, { entries: filterEntries(s.entries || [], state) });
+      })
+      .filter(function (s) { return s.entries.length > 0; });
+    // 固定展示顺序：Agent → AA → 文本 → 搜索（旧快照也按此顺序）
+    list.sort(function (a, b) {
+      var ia = BOARD_ORDER.indexOf(a.id); if (ia < 0) ia = 99;
+      var ib = BOARD_ORDER.indexOf(b.id); if (ib < 0) ib = 99;
+      return ia - ib;
+    });
     if (!list.length) {
-      var msg = state.lic === 'all'
-        ? '数据抓取中，请稍候…<br>首次访问约需十几秒，也可点右上角 ⟳ 手动刷新'
-        : '当前筛选条件下没有数据，试试「全部」';
+      var tips = [];
+      if (state.kw) tips.push('关键字「' + state.kw + '」');
+      if (state.orgs.length) tips.push('厂商（' + state.orgs.length + ' 家）');
+      if (state.lic !== 'all') tips.push(state.lic === 'open' ? '仅开源' : '仅闭源');
+      var cold = !tips.length;
       grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="ico">' +
-        (state.lic === 'all' ? '⏳' : '🔍') + '</div><p>' + msg + '</p></div>';
+        (cold ? '⏳' : '🔍') + '</div><p>' +
+        (cold
+          ? '数据抓取中，请稍候…<br>首次访问约需十几秒，也可点右上角 ⟳ 手动刷新'
+          : '没有符合 ' + tips.join(' + ') + ' 的模型，试试放宽条件') +
+        '</p></div>';
       return;
     }
     grid.innerHTML = list.map(cardHtml).join('');
@@ -711,9 +934,9 @@ export function renderPage() {
   }
 
   function stats(data) {
-    var live = (data.sources || []).map(filterEntries).filter(function (s) {
-      return s.entries && s.entries.length;
-    });
+    var live = (data.sources || []).map(function (s) {
+      return Object.assign({}, s, { entries: filterEntries(s.entries || [], state) });
+    }).filter(function (s) { return s.entries.length; });
     var models = live.reduce(function (sum, s) { return sum + s.entries.length; }, 0);
     return { boards: live.length, models: models };
   }
@@ -727,6 +950,7 @@ export function renderPage() {
         var st = stats(data);
         boardCount.textContent = st.boards ? (st.boards + ' 个榜单 · ' + st.models + ' 款模型') : '';
         render();
+        renderOrgList();
         updateDiag(data);
         // 冷启动：KV 里还没有数据时，后台抓取需要十几秒，自动重试几次
         if (!st.boards && coldRetries < 12) {
@@ -751,6 +975,7 @@ export function renderPage() {
         var st = stats(data);
         boardCount.textContent = st.boards ? (st.boards + ' 个榜单 · ' + st.models + ' 款模型') : '';
         render();
+        renderOrgList();
         updateDiag(data);
         var all = data.sources || [];
         var bad = all.filter(function (s) { return !(s.entries && s.entries.length); });
@@ -772,6 +997,72 @@ export function renderPage() {
   diagToggle.addEventListener('click', function () {
     diagBody.hidden = !diagBody.hidden;
   });
+
+  /* ---------- 搜索框：按模型 / 厂商关键字模糊筛选 ---------- */
+  searchInput.addEventListener('input', function () {
+    state.kw = searchInput.value;
+    searchClear.hidden = !state.kw;
+    render();
+    if (state.data) {
+      var st = stats(state.data);
+      boardCount.textContent = st.boards ? (st.boards + ' 个榜单 · ' + st.models + ' 款模型') : '';
+    }
+  });
+  searchClear.addEventListener('click', function () {
+    searchInput.value = '';
+    state.kw = '';
+    searchClear.hidden = true;
+    render();
+    if (state.data) {
+      var st2 = stats(state.data);
+      boardCount.textContent = st2.boards ? (st2.boards + ' 个榜单 · ' + st2.models + ' 款模型') : '';
+    }
+    searchInput.focus();
+  });
+
+  /* ---------- 厂商多选下拉 ---------- */
+  orgToggle.addEventListener('click', function (e) {
+    e.stopPropagation();
+    orgPanel.hidden = !orgPanel.hidden;
+    if (!orgPanel.hidden) {
+      renderOrgList();
+      orgSearch.value = state.orgQuery;
+    }
+  });
+  orgSearch.addEventListener('input', function () {
+    state.orgQuery = orgSearch.value;
+    renderOrgList();
+  });
+  // 勾选 / 取消某个厂商（事件委托）
+  orgList.addEventListener('change', function (e) {
+    var box = e.target;
+    var org = box.getAttribute && box.getAttribute('data-org');
+    if (!org) return;
+    var i = state.orgs.indexOf(org);
+    if (box.checked && i < 0) state.orgs.push(org);
+    if (!box.checked && i >= 0) state.orgs.splice(i, 1);
+    renderOrgList();
+    render();
+    if (state.data) {
+      var st3 = stats(state.data);
+      boardCount.textContent = st3.boards ? (st3.boards + ' 个榜单 · ' + st3.models + ' 款模型') : '';
+    }
+  });
+  // 「全部厂商」：清空已选
+  orgAll.addEventListener('change', function () {
+    if (orgAll.checked) {
+      state.orgs = [];
+      renderOrgList();
+      render();
+      if (state.data) {
+        var st4 = stats(state.data);
+        boardCount.textContent = st4.boards ? (st4.boards + ' 个榜单 · ' + st4.models + ' 款模型') : '';
+      }
+    }
+  });
+  // 点击面板外部关闭（阻止面板内点击冒泡关闭）
+  orgPanel.addEventListener('click', function (e) { e.stopPropagation(); });
+  document.addEventListener('click', function () { orgPanel.hidden = true; });
 
   seg.addEventListener('click', function (e) {
     var btn = e.target.closest('button');

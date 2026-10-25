@@ -19,14 +19,19 @@
 
 | 榜单 | 数据来源 | 抓取方式 |
 |---|---|---|
-| Arena · 文本总榜 | arena.ai | ✅ 实时（Hugging Face 官方数据集 `lmarena-ai/leaderboard-dataset`，免密钥） |
-| Arena · Agent 榜 | arena.ai | ✅ 实时（同上） |
-| Arena · 搜索榜 | arena.ai | ✅ 实时（同上） |
-| Artificial Analysis | artificialanalysis.ai | 🔑 配置 `AA_API_KEY` 后实时（官方免费 API，分页全量拉取）；未配置时该榜单不显示 |
+| Arena · Agent 榜（第 1 位） | arena.ai | ✅ 实时（Hugging Face 官方数据集 `lmarena-ai/leaderboard-dataset`，免密钥） |
+| Artificial Analysis（第 2 位） | artificialanalysis.ai | 🔑 配置 `AA_API_KEY` 后实时（官方免费 API，分页全量拉取）；未配置时该榜单不显示 |
+| Arena · 文本总榜（第 3 位） | arena.ai | ✅ 实时（同上） |
+| Arena · 搜索榜（第 4 位） | arena.ai | ✅ 实时（同上） |
 
-所有榜单展示**全部条目**（不截断前 N 名）：宽屏下 4 个榜单按 2×2 网格排布，单榜条目过多时在卡片内滚动，每张卡片标注收录总数，顶部显示「N 个榜单 · M 款模型」统计。
+所有榜单展示**全部条目**（不截断前 N 名）：宽屏下 4 个榜单按 2×2 网格排布，单榜条目过多时在卡片内滚动，每张卡片标注收录总数，顶部显示「N 个榜单 · M 款模型」统计。展示顺序固定为 Agent → Artificial Analysis → 文本 → 搜索（前端按固定顺序渲染，旧数据快照也是这个顺序）。
 
-**开源 / 闭源筛选**：页面顶部有「全部 / 仅开源 / 仅闭源」分段控件。
+**三种筛选可叠加使用**（页面顶部同一行）：
+- **搜索框**：按模型名称 / 厂商关键字模糊匹配（大小写不敏感），右侧 ✕ 一键清空；
+- **厂商多选下拉**：勾选一个或多个厂商精确筛选，面板内有厂商关键字过滤和条目计数，「全部厂商」重置；
+- **全部 / 仅开源 / 仅闭源**：分段控件。
+
+筛选后某榜单没有符合的条目时该卡片自动隐藏；顶部统计（榜单数 / 模型数）随筛选实时联动；空状态会提示当前生效的筛选条件。
 - Arena 各榜：按数据集自带的官方 `license` 字段判定，**准确**；
 - Artificial Analysis：接口不返回 license（Pro 订阅才有），按模型名称/发布方的启发式规则判定（GLM、Qwen、DeepSeek、Kimi、MiMo、Gemma、Llama 等开放权重家族），**仅供参考**。
 
@@ -117,7 +122,7 @@ npx wrangler deploy
 
 ```bash
 npm run dev        # wrangler dev，本地起服务（KV 用本地模拟）
-npm test           # 24 项冒烟 + 路由测试（mock 数据，无需网络）
+npm test           # 26 项冒烟 + 路由测试（mock 数据，无需网络）
 npm run check      # 语法检查
 ```
 

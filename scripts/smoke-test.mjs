@@ -8,7 +8,7 @@
 
 import assert from 'node:assert/strict';
 import { refreshAll, buildFallbackSnapshot, SOURCES, isOpenLicense, isOpenModelName } from '../src/sources.js';
-import { renderPage } from '../src/frontend.js';
+import { renderPage, applyEntryFilters } from '../src/frontend.js';
 
 /* ---------- mock 数据 ---------- */
 
@@ -271,19 +271,57 @@ await ok('前端页面包含关键结构与液态玻璃样式', () => {
     'prefers-reduced-motion',
     '获取最权威榜单 · 每日自动抓取',            // 副标题
     'id="diag"', 'updateDiag', 'shortErr',     // 数据源诊断区
+    'id="searchInput"', 'id="searchClear"',    // 搜索框
+    'id="orgFilter"', 'id="orgToggle"', 'id="orgPanel"', // 厂商多选下拉
+    'BOARD_ORDER',                             // 固定展示顺序
   ]) {
     assert.ok(html.includes(marker), 'missing: ' + marker);
   }
   assert.ok(html.length > 15000, '页面过短，可能被截断');
   // 不应残留未转义的模板占位
   assert.ok(!html.includes('undefined'), '页面包含 undefined');
+  // 注入页面的筛选函数必须是真实函数体（不是 [object Object] 或空串）
+  assert.ok(html.includes('function applyEntryFilters(entries, opts)'), '筛选函数未正确注入页面');
   // 已移除的数据源与降级文案不应再出现（seg 控件已恢复，用于开源/闭源筛选）
   for (const gone of ['SuperCLUE', 'OpenCompass', 'FlagEval', '暂无法自动获取', '国内外最权威']) {
     assert.ok(!html.includes(gone), '不应残留: ' + gone);
   }
 });
 
-// 5. 数据源配置完整性
+// 5. 组合筛选（开源/闭源 + 关键字 + 厂商多选，可叠加）
+await ok('applyEntryFilters：关键字 / 厂商 / 开源闭源组合筛选', () => {
+  const entries = [
+    { rank: 1, model: 'Claude Opus 4.5', org: 'Anthropic', score: 1480, open: false },
+    { rank: 2, model: 'DeepSeek V4', org: 'DeepSeek', score: 1450, open: true },
+    { rank: 3, model: 'Kimi K2', org: 'Moonshot', score: 1440, open: true },
+    { rank: 4, model: 'GPT-5.2', org: 'OpenAI', score: 1430, open: false },
+  ];
+  const ids = (r) => r.map((e) => e.rank);
+  // 无筛选 → 原样返回
+  assert.deepEqual(ids(applyEntryFilters(entries, {})), [1, 2, 3, 4]);
+  // 关键字：匹配模型名（大小写不敏感）
+  assert.deepEqual(ids(applyEntryFilters(entries, { kw: 'deepseek' })), [2]);
+  assert.deepEqual(ids(applyEntryFilters(entries, { kw: 'KIMI' })), [3]);
+  // 关键字也匹配厂商名
+  assert.deepEqual(ids(applyEntryFilters(entries, { kw: 'openai' })), [4]);
+  // 厂商多选
+  assert.deepEqual(ids(applyEntryFilters(entries, { orgs: ['Anthropic', 'OpenAI'] })), [1, 4]);
+  // 仅开源 / 仅闭源
+  assert.deepEqual(ids(applyEntryFilters(entries, { lic: 'open' })), [2, 3]);
+  assert.deepEqual(ids(applyEntryFilters(entries, { lic: 'closed' })), [1, 4]);
+  // 组合：仅开源 + 厂商 DeepSeek + 关键字 v4
+  assert.deepEqual(ids(applyEntryFilters(entries, { lic: 'open', orgs: ['DeepSeek'], kw: 'v4' })), [2]);
+  // 组合无交集 → 空数组
+  assert.deepEqual(applyEntryFilters(entries, { lic: 'open', kw: 'gpt' }), []);
+  // 边界：空数组 / null / 空关键字（trim 后忽略）
+  assert.deepEqual(applyEntryFilters([], { lic: 'open' }), []);
+  assert.deepEqual(applyEntryFilters(null, {}), []);
+  assert.equal(applyEntryFilters(entries, { kw: '   ' }).length, 4);
+  // 不过滤原数组
+  assert.equal(entries.length, 4);
+});
+
+// 6. 数据源配置完整性（含展示顺序：Agent 第一、AA 第二）
 await ok('所有数据源字段完整且唯一', () => {
   const ids = new Set();
   for (const s of SOURCES) {
@@ -295,6 +333,9 @@ await ok('所有数据源字段完整且唯一', () => {
     assert.ok(!ids.has(s.id), '重复 id: ' + s.id);
     ids.add(s.id);
   }
+});
+await ok('数据源展示顺序：arena-agent → aa-llm → arena-text → arena-search', () => {
+  assert.deepEqual(SOURCES.map((s) => s.id), ['arena-agent', 'aa-llm', 'arena-text', 'arena-search']);
 });
 
 globalThis.fetch = realFetch;
