@@ -22,9 +22,15 @@
 | Arena · 文本总榜 | arena.ai | ✅ 实时（Hugging Face 官方数据集 `lmarena-ai/leaderboard-dataset`，免密钥） |
 | Arena · Agent 榜 | arena.ai | ✅ 实时（同上） |
 | Arena · 搜索榜 | arena.ai | ✅ 实时（同上） |
-| Artificial Analysis | artificialanalysis.ai | 🔑 配置 `AA_API_KEY` 后实时（官方免费 API）；未配置时该榜单不显示 |
+| Artificial Analysis | artificialanalysis.ai | 🔑 配置 `AA_API_KEY` 后实时（官方免费 API，分页全量拉取）；未配置时该榜单不显示 |
 
 所有榜单展示**全部条目**（不截断前 N 名）：宽屏下 4 个榜单按 2×2 网格排布，单榜条目过多时在卡片内滚动，每张卡片标注收录总数，顶部显示「N 个榜单 · M 款模型」统计。
+
+**开源 / 闭源筛选**：页面顶部有「全部 / 仅开源 / 仅闭源」分段控件。
+- Arena 各榜：按数据集自带的官方 `license` 字段判定，**准确**；
+- Artificial Analysis：接口不返回 license（Pro 订阅才有），按模型名称/发布方的启发式规则判定（GLM、Qwen、DeepSeek、Kimi、MiMo、Gemma、Llama 等开放权重家族），**仅供参考**。
+
+> 关于 Arena 数据：Arena 官方已将全部榜单历史发布为 Hugging Face 数据集（lmarena-ai/leaderboard-dataset）。本 Worker 通过 datasets-server 的 `/filter` 接口按 `category='overall'` 服务端过滤后翻页（实测 text 榜 overall 共 418 条、agent 50 条、search 42 条，合计 7 次请求拿全），`/filter` 不可用时自动回退 `/rows` 全表翻页 + 客户端过滤。
 
 > 关于 Arena 数据：Arena 官方已将全部榜单历史发布为 Hugging Face 数据集（lmarena-ai/leaderboard-dataset），本 Worker 通过 datasets-server REST API 读取，是官方一手数据，无需渲染网页、无需密钥。
 >
@@ -111,7 +117,7 @@ npx wrangler deploy
 
 ```bash
 npm run dev        # wrangler dev，本地起服务（KV 用本地模拟）
-npm test           # 19 项冒烟 + 路由测试（mock 数据，无需网络）
+npm test           # 22 项冒烟 + 路由测试（mock 数据，无需网络）
 npm run check      # 语法检查
 ```
 
@@ -127,7 +133,7 @@ ai-leaderboard/
 ├── package.json
 ├── src/
 │   ├── index.js             # Worker 入口：路由 / 定时任务 / KV 读写
-│   ├── sources.js           # 4 个榜单适配器（仅可自动获取的源）
+│   ├── sources.js           # 4 个榜单适配器（HF filter/rows + AA 分页）+ 开源/闭源判定
 │   └── frontend.js          # iOS 液态玻璃单页（内联 CSS/JS）
 ├── scripts/
 │   ├── smoke-test.mjs       # 数据解析冒烟测试（12 项）
@@ -173,7 +179,12 @@ A: `wrangler.toml` 里的 id 还是占位符 `REPLACE_WITH_YOUR_KV_NAMESPACE_ID`
 A: 全部条目都已加载，卡片内滚动即可查看；每张卡片标注了收录总数（如「共 87 款」）。布局为宽屏 2×2、移动端单列，4 个榜单固定分布。
 
 **Q: AA 榜不显示？**
-A: AA 是唯一需要密钥的榜单：Worker → Settings → Variables and Secrets 确认 `AA_API_KEY` 已添加且类型为 Secret。Arena 三分榜无需任何配置，只要它们有显示就说明抓取链路正常。
+A: 按顺序排查：
+1. **先点页面右上角 ⟳ 手动刷新**——页面展示的是 KV 里的快照，配置密钥后旧快照里 AA 仍是"未配置"状态，要等下一次 cron（每天 16:00 北京）或手动刷新才会重新抓取；
+2. Worker → Settings → Variables and Secrets 确认 `AA_API_KEY` 已添加（类型 Secret，名称不能错）；
+3. 刷新后看提示「已刷新 · X/4 个榜单获取成功」和 `curl https://<域名>/api/data` 里 `aa-llm` 的 `status` / `error` 字段，会写明具体原因（如 HTTP 401 = key 无效）。
+
+Arena 三分榜无需任何配置，只要它们在显示就说明抓取链路正常。
 
 **Q: HF 数据集接口报错？**
 A: 确认 Worker 能访问 `datasets-server.huggingface.co`（默认可以）。若接口结构变动，`fetchArenaBoard` 会抛错，该卡片不显示，不会白屏。

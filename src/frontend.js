@@ -26,6 +26,8 @@ export function renderPage() {
     --glass-shadow: 0 20px 50px -12px rgba(80, 90, 160, 0.22), 0 4px 14px -6px rgba(80, 90, 160, 0.12);
     --row-bg: rgba(255, 255, 255, 0.38);
     --row-hover: rgba(255, 255, 255, 0.72);
+    --seg-bg: rgba(120, 120, 128, 0.16);
+    --seg-active: rgba(255, 255, 255, 0.95);
     --pill-live-bg: rgba(48, 209, 88, 0.16);
     --pill-live-fg: #1b8f3c;
   }
@@ -41,6 +43,8 @@ export function renderPage() {
       --glass-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.5), 0 4px 14px -6px rgba(0, 0, 0, 0.35);
       --row-bg: rgba(255, 255, 255, 0.06);
       --row-hover: rgba(255, 255, 255, 0.12);
+      --seg-bg: rgba(120, 120, 128, 0.24);
+      --seg-active: rgba(99, 99, 102, 0.85);
       --pill-live-bg: rgba(48, 209, 88, 0.2);
       --pill-live-fg: #4cd964;
     }
@@ -178,6 +182,33 @@ export function renderPage() {
   .icon-btn:active { transform: scale(0.94); }
   .icon-btn.spinning span { display: inline-block; animation: spin 0.9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* iOS 分段控件（开源 / 闭源筛选） */
+  .seg {
+    display: inline-flex;
+    background: var(--seg-bg);
+    border-radius: 14px;
+    padding: 2.5px;
+    gap: 2px;
+  }
+  .seg button {
+    border: 0;
+    background: transparent;
+    padding: 7px 15px;
+    border-radius: 12px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-2);
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.25s, color 0.25s, box-shadow 0.25s;
+    white-space: nowrap;
+  }
+  .seg button.active {
+    background: var(--seg-active);
+    color: var(--text-1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  }
 
   /* ---------- 卡片网格：宽屏 2×2（正好容纳 4 个榜单） ---------- */
   .grid {
@@ -346,6 +377,10 @@ export function renderPage() {
     padding: 1.5px 6px;
     font-variant-numeric: tabular-nums;
   }
+  .chip-lic { color: #1b8f3c; background: rgba(48, 209, 88, 0.14); }
+  @media (prefers-color-scheme: dark) {
+    .chip-lic { color: #4cd964; background: rgba(48, 209, 88, 0.18); }
+  }
 
   .score {
     flex: none;
@@ -474,6 +509,11 @@ export function renderPage() {
     <div class="meta-row">
       <span class="meta-pill" id="updatedAt">加载中…</span>
       <span class="meta-pill" id="boardCount"></span>
+      <div class="seg" id="seg">
+        <button data-lic="all" class="active">全部</button>
+        <button data-lic="open">仅开源</button>
+        <button data-lic="closed">仅闭源</button>
+      </div>
     </div>
   </header>
 
@@ -481,6 +521,7 @@ export function renderPage() {
 
   <footer class="glass">
     <p><b>数据来源</b>：Arena（Hugging Face 官方数据集 lmarena-ai/leaderboard-dataset）· Artificial Analysis（配置 API Key 后显示）</p>
+    <p><b>开源 / 闭源</b>：Arena 各榜按官方 license 字段判定，准确；Artificial Analysis 接口不提供 license，按模型名称/发布方启发式判定，仅供参考。</p>
     <p><b>怎么看</b>：Arena 是真人盲测偏好，Artificial Analysis 是独立实测综合分——口径不同，建议交叉参考；头部模型分差常带置信区间，可能是统计意义上的并列。</p>
     <p>本页面只展示成功抓取到数据的榜单 · Cloudflare Worker 每日自动更新 · 数据版权归各榜单官方所有</p>
   </footer>
@@ -492,11 +533,12 @@ export function renderPage() {
 (function () {
   'use strict';
 
-  var state = { data: null };
+  var state = { data: null, lic: 'all' };
   var grid = document.getElementById('grid');
   var updatedAt = document.getElementById('updatedAt');
   var boardCount = document.getElementById('boardCount');
   var refreshBtn = document.getElementById('refreshBtn');
+  var seg = document.getElementById('seg');
   var toast = document.getElementById('toast');
   var coldRetries = 0; // 首次抓取中的自动重试计数
 
@@ -528,7 +570,7 @@ export function renderPage() {
     var chips = '';
     if (e.price) chips += '<span class="chip">' + esc(e.price) + '</span>';
     if (e.speed) chips += '<span class="chip">' + esc(e.speed) + '</span>';
-    if (e.license && e.license !== 'Proprietary' && e.license.indexOf('MIT') === 0) chips += '<span class="chip">' + esc(e.license) + '</span>';
+    if (e.open && e.license) chips += '<span class="chip chip-lic">' + esc(e.license) + '</span>';
     var chipsHtml = chips ? '<span class="chips">' + chips + '</span>' : '';
     var ciHtml = e.ci ? '<em class="ci">' + esc(e.ci) + '</em>' : '';
     return '<li>' +
@@ -562,15 +604,27 @@ export function renderPage() {
     return h;
   }
 
+  /** 按开源/闭源筛选条目（返回副本，不破坏原始数据） */
+  function filterEntries(s) {
+    if (state.lic === 'all' || !s.entries) return s;
+    var want = state.lic === 'open';
+    return Object.assign({}, s, {
+      entries: s.entries.filter(function (e) { return Boolean(e.open) === want; }),
+    });
+  }
+
   function render() {
     if (!state.data) { grid.innerHTML = skeleton(4); return; }
     // 只渲染成功拿到数据的榜单；拿不到的（未配置 key / 抓取失败）不占版面
-    var list = (state.data.sources || []).filter(function (s) {
-      return s.entries && s.entries.length > 0;
-    });
+    var list = (state.data.sources || [])
+      .map(filterEntries)
+      .filter(function (s) { return s.entries && s.entries.length > 0; });
     if (!list.length) {
-      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="ico">⏳</div>' +
-        '<p>数据抓取中，请稍候…<br>首次访问约需十几秒，也可点右上角 ⟳ 手动刷新</p></div>';
+      var msg = state.lic === 'all'
+        ? '数据抓取中，请稍候…<br>首次访问约需十几秒，也可点右上角 ⟳ 手动刷新'
+        : '当前筛选条件下没有数据，试试「全部」';
+      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="ico">' +
+        (state.lic === 'all' ? '⏳' : '🔍') + '</div><p>' + msg + '</p></div>';
       return;
     }
     grid.innerHTML = list.map(cardHtml).join('');
@@ -583,8 +637,9 @@ export function renderPage() {
   }
 
   function stats(data) {
-    var all = data.sources || [];
-    var live = all.filter(function (s) { return s.entries && s.entries.length; });
+    var live = (data.sources || []).map(filterEntries).filter(function (s) {
+      return s.entries && s.entries.length;
+    });
     var models = live.reduce(function (sum, s) { return sum + s.entries.length; }, 0);
     return { boards: live.length, models: models };
   }
@@ -623,13 +678,29 @@ export function renderPage() {
         render();
         var all = data.sources || [];
         var live = all.filter(function (s) { return s.entries && s.entries.length; }).length;
-        showToast('已刷新 · ' + live + '/' + all.length + ' 个榜单获取成功');
+        var failed = all.length - live;
+        showToast('已刷新 · ' + live + '/' + all.length + ' 个榜单获取成功' +
+          (failed ? ' · ' + failed + ' 个失败（详见 /api/data）' : ''));
       })
       .catch(function () { showToast('刷新失败，请稍后重试'); })
       .then(function () { refreshBtn.classList.remove('spinning'); });
   }
 
   refreshBtn.addEventListener('click', refresh);
+
+  seg.addEventListener('click', function (e) {
+    var btn = e.target.closest('button');
+    if (!btn) return;
+    seg.querySelectorAll('button').forEach(function (b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    state.lic = btn.getAttribute('data-lic');
+    render();
+    // 顶部统计随筛选联动
+    if (state.data) {
+      var st = stats(state.data);
+      boardCount.textContent = st.boards ? (st.boards + ' 个榜单 · ' + st.models + ' 款模型') : '';
+    }
+  });
 
   load();
   setInterval(load, 5 * 60 * 1000); // 每 5 分钟静默轮询一次
