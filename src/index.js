@@ -8,11 +8,11 @@
  *   GET  /healthz      健康检查
  *
  * 定时：
- *   wrangler.toml 中 crons = ["0 8 * * *"]，每天 16:00（北京时间）抓取，
+ *   wrangler.toml 中 crons = ["0 * * * *"]，每小时整点抓取一次，
  *   结果写入 KV（data:latest 最新 + data:YYYY-MM-DD 每日归档，保留 90 天）。
  */
 
-import { refreshAll, buildFallbackSnapshot, fetchWithTimeout, AA_API } from './sources.js';
+import { refreshAll, buildFallbackSnapshot, fetchWithTimeout, AA_API, probeHf } from './sources.js';
 import { renderPage } from './frontend.js';
 
 const KV_LATEST = 'data:latest';
@@ -123,6 +123,25 @@ export default {
           aaProbe = { reachable: false, http: null, error: String((err && err.message) || err) };
         }
       }
+      // 实时探测 HF datasets-server：区分「Worker 出口被 HF 拦截」与「代码/数据问题」
+      const hfProbe = await probeHf();
+      // 完整 dry-run 抓取一次（不写 KV）：直接暴露生产环境的真实抓取行为
+      let dryRun = null;
+      try {
+        const t0 = Date.now();
+        const dry = await refreshAll(env);
+        dryRun = {
+          ms: Date.now() - t0,
+          sources: dry.sources.map((s) => ({
+            id: s.id,
+            status: s.status,
+            count: (s.entries || []).length,
+            error: s.error ? String(s.error).slice(0, 200) : null,
+          })),
+        };
+      } catch (err) {
+        dryRun = { error: String((err && err.message) || err).slice(0, 300) };
+      }
       return jsonResponse({
         ok: true,
         kvBound: Boolean(env.LEADERBOARD_KV),
@@ -131,6 +150,8 @@ export default {
         aaKeyPresent: Boolean(key),
         aaKeyPrefix: key ? String(key).slice(0, 4) + '…' : null,
         aaProbe,
+        hfProbe,
+        dryRun,
         sources: ((snap && snap.sources) || []).map((s) => ({
           id: s.id,
           status: s.status,

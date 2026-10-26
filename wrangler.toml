@@ -2,10 +2,11 @@ name = "ai-leaderboard-daily"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
 
-# 每天 08:00 UTC（北京时间 16:00）自动抓取一次榜单
+# 每小时整点自动抓取一次榜单（备份机制：即使页面访问触发的后台抓取被
+# isolate 回收打断，cron 也能在一小时内把数据写进 KV）
 # 定时任务随本文件一起被 Cloudflare 部署，连接 GitHub 后自动生效
 [triggers]
-crons = ["0 8 * * *"]
+crons = ["0 * * * *"]
 
 # KV 命名空间：部署前必须先创建并填入真实 ID，否则部署报 "KV namespace id is invalid"
 # 方式一（Dashboard，GitHub 连接部署推荐）：

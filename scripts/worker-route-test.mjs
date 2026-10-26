@@ -162,6 +162,14 @@ await t('GET /healthz 健康检查（含数据源诊断）', async () => {
   const aa = data.sources.find((s) => s.id === 'aa-llm');
   assert.equal(aa.status, 'unavailable'); // 无 key → 未配置错误
   assert.match(aa.error, /AA_API_KEY/);
+  // HF 出口探测（区分「Worker 出口被 HF 拦截」与代码问题）
+  assert.ok(data.hfProbe);
+  assert.equal(data.hfProbe.reachable, true);
+  // dry-run 完整抓取（不写 KV，暴露生产真实抓取行为）
+  assert.ok(data.dryRun);
+  assert.ok(!data.dryRun.error);
+  assert.ok(Number.isInteger(data.dryRun.ms));
+  assert.ok(data.dryRun.sources.length >= 4);
 });
 
 await t('GET /healthz（配置了有效 AA key）实时探测接口可达', async () => {

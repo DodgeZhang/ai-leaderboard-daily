@@ -53,6 +53,27 @@ export function __resetFilterHealth() {
   filterBrokenUntil = 0;
 }
 
+/**
+ * 轻量探测 HF datasets-server 可达性（1 行请求）。
+ * 供 /healthz 区分「Worker 出口被 HF 拦截」与「代码/数据问题」。
+ */
+export async function probeHf() {
+  try {
+    const res = await fetchWithTimeout(
+      `${HF_ROWS_BASE}?dataset=${HF_DATASET}&config=agent&split=latest&offset=0&length=1`,
+      {},
+      10000
+    );
+    if (res.ok) {
+      const j = await res.json();
+      return { reachable: true, http: res.status, numRows: j.num_rows_total ?? null };
+    }
+    return { reachable: false, http: res.status };
+  } catch (err) {
+    return { reachable: false, http: null, error: String((err && err.message) || err).slice(0, 200) };
+  }
+}
+
 const r1 = (n) => Math.round(n * 10) / 10;
 const r2 = (n) => Math.round(n * 100) / 100;
 

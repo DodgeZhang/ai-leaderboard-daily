@@ -2,12 +2,12 @@
 
 > 仓库地址：**https://github.com/DodgeZhang/ai-leaderboard-daily** · 通过 Cloudflare 连接 GitHub 自动部署
 
-一个可部署到 **Cloudflare Workers** 的完整应用：后端每日定时抓取全球最权威的 AI 排行榜数据，存入 Cloudflare KV；前端为 **iOS 液态玻璃（Liquid Glass）风格**的单页展示网站，深浅色自适应、移动端友好。
+一个可部署到 **Cloudflare Workers** 的完整应用：后端每小时定时抓取全球最权威的 AI 排行榜数据，存入 Cloudflare KV；前端为 **iOS 液态玻璃（Liquid Glass）风格**的单页展示网站，深浅色自适应、移动端友好。
 
 ```
  GitHub 仓库 ──git push──▶ Cloudflare Workers Builds ──▶ 线上 Worker
  (本仓库)                    自动构建部署(约1分钟)            │
-                                                            ├─ cron 每日 16:00(北京) 抓取 4 个榜单 → 写入 KV
+                                                            ├─ cron 每小时整点抓取 4 个榜单 → 写入 KV
                                                             ├─ GET  /            液态玻璃页面
                                                             ├─ GET  /api/data    最新快照 JSON(过期自动自愈)
                                                             └─ POST /api/refresh 手动刷新(可选 REFRESH_TOKEN)
@@ -98,7 +98,7 @@ AA_API_KEY=aa_xxxxxxxxxxxxxxxx
 
 - **自动部署**：`git push origin main` → Cloudflare 自动构建部署（约 1 分钟），可在 Workers & Pages → Deployments 查看每次部署记录
 - **预览部署**：推送到其他分支或发 PR，Cloudflare 会生成预览链接，不影响线上
-- **定时任务**：cron 每天 08:00 UTC（北京时间 16:00）自动抓取，随 wrangler.toml 部署生效
+- **定时任务**：cron 每小时整点（）自动抓取，随 wrangler.toml 部署生效
 - **运行日志**：Worker → Logs 实时查看，或本地 `npx wrangler tail`
 
 ## 备选：命令行部署（本地调试用）
@@ -115,10 +115,10 @@ npx wrangler deploy
 
 ## 日常使用
 
-- **自动更新**：cron 设为每天 08:00 UTC（北京时间 16:00）抓取一次，结果写入 KV。
+- **自动更新**：cron 设为每小时整点抓取一次，结果写入 KV；页面访问时若 KV 为空/过期，也会触发一次后台抓取（8 秒内完成）。
 - **手动刷新**：页面右上角 ⟳ 按钮；或 `curl -X POST https://<域名>/api/refresh`（配了 `REFRESH_TOKEN` 则加 `?token=xxx`）。
 - **查看原始数据**：`curl https://<域名>/api/data`
-- **健康检查 / 故障诊断**：`curl https://<域名>/healthz`——除基本状态外，还报告每个数据源的 `status`/`count`/`error`、`AA_API_KEY` 是否配置，并实时探测一次 AA 接口（可配 UptimeRobot 监控）
+- **健康检查 / 故障诊断**：`curl https://<域名>/healthz`——除基本状态外，还报告每个数据源的 `status`/`count`/`error`、`AA_API_KEY` 是否配置，并实时探测一次 AA 接口（`aaProbe`）与 HF datasets-server（`hfProbe`，判断 Worker 出口是否被拦截），最后**完整 dry-run 抓取一次**（`dryRun`：各源状态 + 耗时，不写 KV）——数据不显示时，这个 JSON 一眼可见死在哪一环（可配 UptimeRobot 监控）
 - **实时日志**：`npx wrangler tail`
 
 ## 本地开发
@@ -188,7 +188,7 @@ A: 全部条目都已加载，卡片内滚动即可查看；每张卡片标注�
 
 **Q: AA 榜不显示？**
 A: 按顺序排查（页面已内置诊断，不用翻 JSON）：
-1. **先点页面右上角 ⟳ 手动刷新**——页面展示的是 KV 里的快照，配置密钥后旧快照里 AA 仍是"未配置"状态，要等下一次 cron（每天 16:00 北京）或手动刷新才会重新抓取；
+1. **先点页面右上角 ⟳ 手动刷新**——页面展示的是 KV 里的快照，配置密钥后旧快照里 AA 仍是"未配置"状态，要等下一次 cron（每小时整点）或手动刷新才会重新抓取；
 2. 刷新后**看两处**：① 弹出的提示会直接写明失败原因（如「Artificial Analysis：API 返回 HTTP 401」）；② 页脚出现「⚠ N 个数据源未就绪 · 查看详情」，点开可见每个源的状态和错误；
 3. 还想深挖就访问 `curl https://<域名>/healthz`，它会实时报告：`aaKeyPresent`（密钥配没配）、`aaKeyPrefix`（配对没对）、`aaProbe`（Worker 到 AA 接口通不通：`reachable:false` 说明 Worker 出口被 AA 拦截或网络不通，`http:401` 说明 key 无效）、以及每个数据源的 `status`/`count`/`error`；
 4. 常见原因：密钥名称打错（必须是 `AA_API_KEY`）、类型没选 Secret、加完没手动刷新。
