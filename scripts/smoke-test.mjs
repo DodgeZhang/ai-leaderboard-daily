@@ -7,6 +7,7 @@
  */
 
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 import { refreshAll, buildFallbackSnapshot, SOURCES, isOpenLicense, isOpenModelName, normalizeOrg, __resetFilterHealth } from '../src/sources.js';
 import { renderPage, applyEntryFilters } from '../src/frontend.js';
 
@@ -379,6 +380,94 @@ await ok('前端页面包含关键结构与液态玻璃样式', () => {
   for (const gone of ['SuperCLUE', 'OpenCompass', 'FlagEval', '暂无法自动获取', '国内外最权威']) {
     assert.ok(!html.includes(gone), '不应残留: ' + gone);
   }
+});
+
+// 4b. 打包器产物回归（线上事故复现防护）：
+// worker 经 wrangler/esbuild 打包（默认 keepNames）后，applyEntryFilters 的
+// 函数体内会被插入 __name(fn, "name") 辅助调用；该函数经 toString() 注入页面，
+// 而浏览器里没有 __name 全局——页面必须自带 no-op __name，否则首次筛选/统计
+// 即 ReferenceError，"更新于 刚刚"之后数据区整片空白。
+await ok('页面脚本对打包器 __name 注入免疫（vm 内不提供 __name 全局）', async () => {
+  const html = renderPage();
+  const m = html.match(/<script>([\s\S]*?)<\/script>/);
+  assert.ok(m, '未找到内联脚本');
+  let script = m[1];
+
+  // 静态断言：页面脚本必须自带 __name no-op 定义
+  assert.ok(script.includes('var __name = function'), '页面脚本缺少 __name no-op 定义');
+
+  // 模拟 esbuild keepNames：在注入函数的两个内部函数声明后插入 __name 调用
+  let bundled = applyEntryFilters.toString();
+  for (const name of ['priceUsd', 'inPriceTier']) {
+    const decl = 'function ' + name + '(';
+    const i = bundled.indexOf(decl);
+    assert.ok(i >= 0, '未找到内部函数: ' + name);
+    const open = bundled.indexOf('{', i);
+    let depth = 0;
+    let end = -1;
+    for (let k = open; k < bundled.length; k++) {
+      if (bundled[k] === '{') depth++;
+      else if (bundled[k] === '}') { depth--; if (depth === 0) { end = k; break; } }
+    }
+    assert.ok(end >= 0, '函数体括号不配对: ' + name);
+    bundled = bundled.slice(0, end + 1) + '\n  __name(' + name + ', "' + name + '");' + bundled.slice(end + 1);
+  }
+  assert.ok(bundled.includes('__name(priceUsd, "priceUsd")'), '模拟打包失败');
+  assert.ok(bundled.includes('__name(inPriceTier, "inPriceTier")'), '模拟打包失败');
+
+  // 用"打包版"函数替换页面中注入的原始函数，模拟线上 worker 的注入结果
+  const start = script.indexOf('var filterEntries = ');
+  const endMark = script.indexOf('\n\n  /* 榜单展示顺序');
+  assert.ok(start >= 0 && endMark > start, '未定位注入点');
+  script = script.slice(0, start) + 'var filterEntries = ' + bundled + script.slice(endMark);
+
+  // 最小 DOM 桩：按 id 惰性创建元素
+  const mkEl = () => ({
+    innerHTML: '', textContent: '', value: '', checked: false,
+    style: {},
+    classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
+    addEventListener() {}, setAttribute() {}, getAttribute() { return null; },
+    querySelectorAll() { return []; }, querySelector() { return null; },
+    closest() { return null; }, appendChild() {},
+  });
+  const byId = {};
+  const documentStub = {
+    getElementById(id) { return byId[id] || (byId[id] = mkEl()); },
+    createElement() { return mkEl(); },
+    addEventListener() {},
+  };
+
+  const fixture = {
+    generatedAt: new Date().toISOString(),
+    sources: [{
+      id: 'arena-agent', name: 'Arena Agent 榜', category: 'agent', org: 'LMArena',
+      url: 'https://lmarena.ai', metric: 'Arena Score', accent: '#0a84ff', desc: 'd',
+      status: 'live', error: null,
+      entries: [
+        { rank: 1, model: 'Claude Opus 4.5', org: 'Anthropic', score: 1480, open: false },
+        { rank: 2, model: 'DeepSeek V4', org: 'DeepSeek', score: 1450, open: true },
+      ],
+    }],
+  };
+
+  const sandbox = {
+    document: documentStub,
+    fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve(fixture) }),
+    setTimeout: () => 0, clearTimeout: () => {}, setInterval: () => 0,
+    console,
+  };
+  vm.createContext(sandbox);
+  // 关键：故意不提供 __name——浏览器里也没有这个全局
+  vm.runInContext(script, sandbox);
+
+  // 等 fetch → json → .then 链跑完
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+
+  const grid = byId['grid'];
+  assert.ok(grid.innerHTML.includes('Claude Opus 4.5'),
+    '榜单未渲染出条目（疑似 __name 未定义）grid=' + grid.innerHTML.slice(0, 160));
+  assert.ok(!grid.innerHTML.includes('⚠️'), '渲染兜底被触发: ' + grid.innerHTML.slice(0, 200));
+  assert.ok(byId['updatedAt'].textContent.includes('更新于'), 'updatedAt 未更新');
 });
 
 // 5. 组合筛选（开源/闭源 + 关键字 + 厂商多选，可叠加）

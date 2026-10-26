@@ -818,6 +818,11 @@ export function renderPage() {
   'use strict';
 
   /* 组合筛选纯函数（由模块顶层注入，与单元测试共用同一实现） */
+  /* 兜底：worker 经 esbuild 打包（wrangler 默认 keepNames）后，注入页面的
+     函数体里会带上打包器辅助调用 __name(fn, "name")，而浏览器里没有这个
+     辅助函数——不定义就会在首次筛选/统计时抛 ReferenceError，导致整个
+     榜单渲染中断（页面只剩"更新于 刚刚"、数据区空白）。 */
+  var __name = function (f) { return f; };
   var filterEntries = ${applyEntryFilters};
 
   /* 榜单展示顺序：Artificial Analysis → Agent 榜 → 文本总榜 → 搜索榜
@@ -1106,19 +1111,29 @@ export function renderPage() {
     fetch('/api/data', { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (data) {
-        state.data = data;
-        loadRetries = 0;
-        updatedAt.textContent = '更新于 ' + relTime(data.generatedAt);
-        var st = stats(data);
-        boardCount.textContent = st.boards ? (st.boards + ' 个榜单 · ' + st.models + ' 款模型') : '';
-        render();
-        renderOrgList();
-        renderPriceList();
-        updateDiag(data);
-        // 冷启动：KV 里还没有数据时，后台抓取需要十几秒，自动重试几次
-        if (!st.boards && coldRetries < 12) {
-          coldRetries++;
-          setTimeout(load, 3000);
+        /* 渲染崩了不能静默重试刷成"加载失败"（数据明明拿到了）——
+           直接暴露现场。曾因打包器把 __name 辅助调用注入页面脚本导致
+           此处抛错、整页数据区空白，故加此兜底。 */
+        try {
+          state.data = data;
+          loadRetries = 0;
+          updatedAt.textContent = '更新于 ' + relTime(data.generatedAt);
+          var st = stats(data);
+          boardCount.textContent = st.boards ? (st.boards + ' 个榜单 · ' + st.models + ' 款模型') : '';
+          render();
+          renderOrgList();
+          renderPriceList();
+          updateDiag(data);
+          // 冷启动：KV 里还没有数据时，后台抓取需要十几秒，自动重试几次
+          if (!st.boards && coldRetries < 12) {
+            coldRetries++;
+            setTimeout(load, 3000);
+          }
+        } catch (renderErr) {
+          grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="ico">⚠️</div>' +
+            '<p>数据已加载，但页面渲染出错<br>' +
+            '<span style="font-size:12px;opacity:.7">' + esc((renderErr && renderErr.message) || renderErr) +
+            ' · 可尝试 Ctrl+F5 强制刷新，或访问 /healthz 查看服务端状态</span></p></div>';
         }
       })
       .catch(function (err) {
@@ -1141,25 +1156,34 @@ export function renderPage() {
     fetch('/api/refresh', { method: 'POST', cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (data) {
-        state.data = data;
-        coldRetries = 0;
-        updatedAt.textContent = '更新于 ' + relTime(data.generatedAt);
-        var st = stats(data);
-        boardCount.textContent = st.boards ? (st.boards + ' 个榜单 · ' + st.models + ' 款模型') : '';
-        render();
-        renderOrgList();
-        renderPriceList();
-        updateDiag(data);
-        var all = data.sources || [];
-        var bad = all.filter(function (s) { return !(s.entries && s.entries.length); });
-        var msg = '已刷新 · ' + (all.length - bad.length) + '/' + all.length + ' 个榜单获取成功';
-        if (bad.length) {
-          // 直接把失败原因显示出来，不用再去 /api/data 翻 JSON
-          msg += '；' + bad.map(function (s) {
-            return s.name + '：' + shortErr(s.error || '暂无数据', 40);
-          }).join('；');
+        try {
+          state.data = data;
+          coldRetries = 0;
+          updatedAt.textContent = '更新于 ' + relTime(data.generatedAt);
+          var st = stats(data);
+          boardCount.textContent = st.boards ? (st.boards + ' 个榜单 · ' + st.models + ' 款模型') : '';
+          render();
+          renderOrgList();
+          renderPriceList();
+          updateDiag(data);
+          var all = data.sources || [];
+          var bad = all.filter(function (s) { return !(s.entries && s.entries.length); });
+          var msg = '已刷新 · ' + (all.length - bad.length) + '/' + all.length + ' 个榜单获取成功';
+          if (bad.length) {
+            // 直接把失败原因显示出来，不用再去 /api/data 翻 JSON
+            msg += '；' + bad.map(function (s) {
+              return s.name + '：' + shortErr(s.error || '暂无数据', 40);
+            }).join('；');
+          }
+          showToast(msg, bad.length ? 9000 : 2600);
+        } catch (renderErr) {
+          // 同 load()：渲染崩了要可见，不能假装成功
+          grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="ico">⚠️</div>' +
+            '<p>数据已刷新，但页面渲染出错<br>' +
+            '<span style="font-size:12px;opacity:.7">' + esc((renderErr && renderErr.message) || renderErr) +
+            ' · 可尝试 Ctrl+F5 强制刷新</span></p></div>';
+          showToast('渲染出错：' + shortErr((renderErr && renderErr.message) || String(renderErr), 40), 9000);
         }
-        showToast(msg, bad.length ? 9000 : 2600);
       })
       .catch(function () { showToast('刷新失败，请稍后重试'); })
       .then(function () { refreshBtn.classList.remove('spinning'); });
