@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { refreshAll, buildFallbackSnapshot, SOURCES, isOpenLicense, isOpenModelName, normalizeOrg, __resetFilterHealth } from '../src/sources.js';
 import { renderPage, applyEntryFilters } from '../src/frontend.js';
+import { aaKeys } from '../src/sources.js';
 
 /* ---------- mock 数据 ---------- */
 
@@ -232,12 +233,56 @@ await ok('AA key 无效（401）→ unavailable', async () => {
     if (String(url).includes('artificialanalysis.ai')) {
       return new Response('{}', { status: 401, headers: { 'content-type': 'application/json' } });
     }
-    return realFetch(url, opts); // 其余仍走 mock？不，realFetch 无网络，这里不会触发
+    return mockFetch(url, opts); // HF 等仍走 mock，不依赖真实网络（沙箱直连会挂起超时）
   };
   __resetFilterHealth();
   const s = (await refreshAll({ AA_API_KEY: 'bad' })).sources.find((x) => x.id === 'aa-llm');
   assert.equal(s.status, 'unavailable');
   assert.match(s.error, /401/);
+  globalThis.fetch = mockFetch; // 恢复主 mock
+});
+
+await ok('aaKeys：解析 AA_API_KEYS（逗号分隔）并兼容单个 AA_API_KEY', () => {
+  assert.deepEqual(aaKeys({ AA_API_KEYS: 'aa_a, aa_b ,aa_c' }), ['aa_a', 'aa_b', 'aa_c']);
+  assert.deepEqual(aaKeys({ AA_API_KEY: 'aa_single' }), ['aa_single']);
+  // AA_API_KEYS 优先于 AA_API_KEY
+  assert.deepEqual(aaKeys({ AA_API_KEYS: 'aa_multi', AA_API_KEY: 'aa_single' }), ['aa_multi']);
+  assert.deepEqual(aaKeys({}), []);
+  assert.deepEqual(aaKeys(null), []);
+  assert.deepEqual(aaKeys({ AA_API_KEYS: ' , ' }), []);
+});
+
+await ok('AA 多 key：首个 key 配额耗尽（429）时自动切换下一个 key', async () => {
+  globalThis.fetch = async (url, opts = {}) => {
+    if (String(url).startsWith('https://artificialanalysis.ai/api/v2/language/models')) {
+      // 第一个 key 持续 429（含 fetchAaPage 内部的同 key 退避重试）
+      if (opts.headers['x-api-key'] === 'aa_exhausted') {
+        return new Response('{}', { status: 429, headers: { 'content-type': 'application/json' } });
+      }
+      return mockFetch(url, opts); // 第二个 key 正常返回数据
+    }
+    return mockFetch(url, opts);
+  };
+  __resetFilterHealth();
+  const s = (await refreshAll({ AA_API_KEYS: 'aa_exhausted,aa_healthy' })).sources.find((x) => x.id === 'aa-llm');
+  assert.equal(s.status, 'live');
+  assert.equal(s.entries.length, 2); // 拿到了完整数据（含翻页）
+  assert.equal(s.entries[0].model, 'TopModel-X');
+  globalThis.fetch = mockFetch;
+});
+
+await ok('AA 配额节流：__aaSkipReason 时不发任何请求，直接跳过', async () => {
+  globalThis.fetch = async (url, opts = {}) => {
+    if (String(url).startsWith('https://artificialanalysis.ai')) {
+      throw new Error('节流期间不应发起 AA 请求');
+    }
+    return mockFetch(url, opts);
+  };
+  __resetFilterHealth();
+  const s = (await refreshAll({ AA_API_KEY: 'k', __aaSkipReason: '20h 内刚抓取过，本次跳过' }))
+    .sources.find((x) => x.id === 'aa-llm');
+  assert.equal(s.status, 'unavailable');
+  assert.match(s.error, /20h 内刚抓取过/);
   globalThis.fetch = mockFetch; // 恢复主 mock
 });
 

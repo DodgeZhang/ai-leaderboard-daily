@@ -85,8 +85,11 @@ Worker 页面 → **Settings → Variables and Secrets → Add**：
 
 | 名称 | 类型 | 说明 |
 |---|---|---|
-| `AA_API_KEY` | **Secret（加密）** | Artificial Analysis 免费 API Key（artificialanalysis.ai 注册账号 → API Keys，免费 1000 次/天）；**不配则 AA 榜整个不显示** |
+| `AA_API_KEY` | **Secret（加密）** | Artificial Analysis 免费 API Key（artificialanalysis.ai 注册账号 → API Keys）；**不配则 AA 榜整个不显示** |
+| `AA_API_KEYS` | Secret（加密） | 可选，多个 key 用逗号分隔（如 `aa_xxx,aa_yyy`），某个 key 配额耗尽（429）时自动切换下一个。注意：**同一账户下所有 key 共享同一配额**（免费 100 次/24h），只有不同账户的 key 才能叠加配额 |
 | `REFRESH_TOKEN` | Secret（加密） | 手动刷新接口 `/api/refresh` 的访问口令；不配则接口公开 |
+
+> **配额说明**：AA 免费额度为 100 次请求/24h（固定窗口，同一账户所有 key 共享）。本项目一次全量抓取约需 6 次请求，因此 Worker 默认**节流**：AA 成功抓取一次后 20 小时内不再重复抓取（展示上次成功数据，标「⏳」），全天仅消耗 6-12 次请求，远离限额。确需立即更新可 `curl -X POST "https://<域名>/api/refresh?force=1"`（配了 `REFRESH_TOKEN` 则加 `&token=xxx`）。
 
 保存后即时生效，无需重新部署。本地开发则把 key 写进项目根目录的 `.dev.vars`（已被 .gitignore 忽略，不会提交）：
 
@@ -118,7 +121,7 @@ npx wrangler deploy
 - **自动更新**：cron 设为每小时整点抓取一次，结果写入 KV；页面访问时若 KV 为空/过期，也会触发一次后台抓取（2-9 秒内完成）。某个源抓取失败时（如限流），自动复用上次成功的数据并在卡片上标「⏳ 上次数据」，榜单不会整块消失。
 - **手动刷新**：页面右上角 ⟳ 按钮；或 `curl -X POST https://<域名>/api/refresh`（配了 `REFRESH_TOKEN` 则加 `?token=xxx`）。
 - **查看原始数据**：`curl https://<域名>/api/data`
-- **健康检查 / 故障诊断**：`curl https://<域名>/healthz`——除基本状态外，还报告每个数据源的 `status`/`count`/`error`、`AA_API_KEY` 是否配置，并实时探测一次 AA 接口（`aaProbe`）与 HF datasets-server（`hfProbe`，判断 Worker 出口是否被拦截），最后**完整 dry-run 抓取一次**（`dryRun`：各源状态 + 耗时，不写 KV）——数据不显示时，这个 JSON 一眼可见死在哪一环（可配 UptimeRobot 监控）
+- **健康检查 / 故障诊断**：`curl https://<域名>/healthz`——除基本状态外，还报告每个数据源的 `status`/`count`/`error`、`AA_API_KEY(S)` 是否配置（`aaKeyCount`）、上次成功抓取时间（`aaLastOkAt`），并实时探测一次 AA 接口（`aaProbe`）与 HF datasets-server（`hfProbe`，判断 Worker 出口是否被拦截），最后**完整 dry-run 抓取一次**（`dryRun`：各源状态 + 耗时，不写 KV；同样受 AA 配额节流保护）——数据不显示时，这个 JSON 一眼可见死在哪一环（可配 UptimeRobot 监控）
 - **实时日志**：`npx wrangler tail`
 
 ## 本地开发

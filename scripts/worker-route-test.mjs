@@ -79,10 +79,26 @@ globalThis.fetch = async (url, opts = {}) => {
     return respond({ features: [], rows: all.slice(offset, offset + 100), num_rows_total: all.length, num_rows_per_page: 100 });
   }
   if (u.includes('artificialanalysis.ai')) {
-    // 模拟 key 无效 → 401（供 /healthz 探测路径测试）
+    // aa_bad → 401；aa_exhausted → 429（配额耗尽）；其余 key 正常返回数据
     const k = opts && opts.headers && opts.headers['x-api-key'];
     if (k === 'aa_bad') return respond({ error: 'Unauthorized' }, 'application/json', 401);
-    return respond({ status: 200, data: [], pagination: { has_more: false } });
+    if (k === 'aa_exhausted') return respond({ error: 'rate limited' }, 'application/json', 429);
+    return respond({
+      status: 200,
+      data: [
+        {
+          name: 'AA-Model-1', model_creator: { name: 'OpenAI' },
+          evaluations: { artificial_analysis_intelligence_index: 70.5 },
+          pricing: { price_1m_input_tokens: 3, price_1m_output_tokens: 5 },
+          performance: { median_output_tokens_per_second: 96.3 },
+        },
+        {
+          name: 'GLM-5.3', model_creator: { name: 'Z AI' },
+          evaluations: { artificial_analysis_intelligence_index: 60 },
+        },
+      ],
+      pagination: { has_more: false },
+    });
   }
   return respond('<html>spa</html>', 'text/html; charset=utf-8');
 };
@@ -164,6 +180,31 @@ await t('抓取失败的源复用旧快照数据（stale），榜单不消失', 
   const saved = JSON.parse(store.get('data:latest'));
   assert.equal(saved.sources.find((s) => s.id === 'aa-llm').status, 'stale');
   // 清理：恢复 KV 空状态，避免影响后续用例（scheduled 会重新写入完整快照）
+  store.delete('data:latest');
+});
+
+await t('AA 配额节流：20h 内抓过则跳过，?force=1 可强抓', async () => {
+  const envK = { ...env, AA_API_KEY: 'aa_valid' };
+  // 第一次：force 强抓 → AA live → 记录 meta:aa-last-ok
+  const r1 = await worker.fetch(new Request('http://localhost/api/refresh?force=1', { method: 'POST' }), envK, ctx);
+  const d1 = await r1.json();
+  const aa1 = d1.sources.find((s) => s.id === 'aa-llm');
+  assert.equal(aa1.status, 'live');
+  assert.equal(aa1.entries.length, 2);
+  assert.ok(store.has('meta:aa-last-ok'), 'AA 抓成功后应记录 meta:aa-last-ok');
+  // 第二次（TTL 内、不带 force）：不发请求跳过 → unavailable → 复用旧数据标 stale
+  const r2 = await worker.fetch(new Request('http://localhost/api/refresh', { method: 'POST' }), envK, ctx);
+  const d2 = await r2.json();
+  const aa2 = d2.sources.find((s) => s.id === 'aa-llm');
+  assert.equal(aa2.status, 'stale');
+  assert.match(aa2.error, /配额有限/);
+  assert.equal(aa2.entries.length, 2); // 复用上次成功数据，榜单不消失
+  // 第三次：force=1 绕过节流，真的再抓一次
+  const r3 = await worker.fetch(new Request('http://localhost/api/refresh?force=1', { method: 'POST' }), envK, ctx);
+  const d3 = await r3.json();
+  assert.equal(d3.sources.find((s) => s.id === 'aa-llm').status, 'live');
+  // 清理：避免影响后续用例
+  store.delete('meta:aa-last-ok');
   store.delete('data:latest');
 });
 

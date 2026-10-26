@@ -23,6 +23,15 @@ id = "4b622256e1464e7a8e7a7716e7a9f14f"
 # 配置位置（GitHub 连接部署）：Worker → Settings → Variables and Secrets → Add
 # 或命令行：npx wrangler secret put AA_API_KEY
 # 切勿把密钥提交进仓库。
+#
+# 多 key（可选）：变量名 AA_API_KEYS，值用逗号分隔，如 "aa_xxx,aa_yyy"。
+# 某个 key 配额耗尽（429）时自动切换到下一个。
+# 注意官方规则：同一账户（组织）下所有 key 共享同一配额（免费 100 次/24h），
+# 同账户多 key 只是冗余；只有不同账户的 key 才能真正叠加配额。
+#
+# 配额保护：Worker 侧默认节流——AA 成功抓取一次后 20h 内不再重复抓取
+# （一次全量抓取要 6 次请求，每小时 cron 不节流会必然超限），
+# 期间展示上次成功数据；确需立即更新可 POST /api/refresh?force=1。
 
 # 手动刷新接口 /api/refresh 的访问口令（可选，同上方式配置）
 # 不配则接口公开。

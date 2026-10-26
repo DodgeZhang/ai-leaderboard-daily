@@ -387,7 +387,7 @@ async function fetchArenaBoard(config, category, kind, env) {
 /* Artificial Analysis 抓取（官方免费 API）                              */
 /* ------------------------------------------------------------------ */
 
-/** 拉取 AA 单页（含 429/5xx 退避重试一次） */
+/** 拉取 AA 单页（含 429/5xx 退避重试一次；错误带 status 供上层判断是否换 key） */
 async function fetchAaPage(key, page) {
   let res = await fetchWithTimeout(`${AA_API}?page=${page}`, {
     headers: { 'x-api-key': key },
@@ -399,23 +399,60 @@ async function fetchAaPage(key, page) {
       headers: { 'x-api-key': key },
     }, 15000);
   }
-  if (!res.ok) throw new Error(`Artificial Analysis API 返回 HTTP ${res.status}（请检查 key 是否有效）`);
+  if (!res.ok) {
+    const err = new Error(`Artificial Analysis API 返回 HTTP ${res.status}（请检查 key 是否有效）`);
+    err.status = res.status;
+    throw err;
+  }
   return res.json();
 }
 
-/** Artificial Analysis 官方免费 API（需要 AA_API_KEY，分页全量拉取） */
+/**
+ * 解析 AA key 列表：优先 AA_API_KEYS（逗号分隔），兼容单个 AA_API_KEY。
+ * 注意官方规则：同一账户（组织）下所有 key 共享同一配额（免费 100 次/24h），
+ * 所以同账户多 key 只是冗余；只有不同账户的 key 才能真正叠加配额。
+ */
+export function aaKeys(env) {
+  const raw = (env && (env.AA_API_KEYS || env.AA_API_KEY)) || '';
+  return String(raw).split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+/** Artificial Analysis 官方免费 API（需要 AA key，分页全量拉取，支持多 key 轮换） */
 async function fetchArtificialAnalysis(env) {
-  const key = env && env.AA_API_KEY;
-  if (!key) {
+  const keys = aaKeys(env);
+  if (!keys.length) {
     throw new Error('未配置 AA_API_KEY（免费申请：artificialanalysis.ai 注册账号 → API Keys → 在 Worker 设置里注入）');
   }
+  // 配额节流由 Worker 侧控制（KV 记录上次成功时间）：太频繁则带 __aaSkipReason
+  // 进来，本次不发任何请求，错误信息说明原因，上层复用旧数据展示。
+  if (env && env.__aaSkipReason) throw new Error(env.__aaSkipReason);
+
+  /* 多 key 轮换：当前 key 配额耗尽（429）时切换到下一个 key 重试。
+     仅 429 值得换（配额问题）；401/5xx 等换 key 无意义，直接抛出。 */
+  const keyIdx = { i: 0 };
+  const fetchPage = async (page) => {
+    let lastErr = null;
+    for (let tried = 0; tried < keys.length; tried++) {
+      const key = keys[keyIdx.i % keys.length];
+      try {
+        return await fetchAaPage(key, page);
+      } catch (err) {
+        lastErr = err;
+        const is429 = err && err.status === 429;
+        if (keys.length > 1 && is429) { keyIdx.i++; continue; }
+        throw err;
+      }
+    }
+    throw lastErr;
+  };
+
   // 首页拿分页信息，随后逐页拉取（曾试过并发拉全部页：AA 对并发敏感，
   // 同时 4 页直接 429 限流，故保持串行——4 页约 2s，可接受）
-  const first = await fetchAaPage(key, 1);
+  const first = await fetchPage(1);
   const models = [...(first.data || [])];
   const totalPages = Math.min(AA_MAX_PAGES, (first.pagination && first.pagination.total_pages) || 1);
   for (let page = 2; page <= totalPages; page++) {
-    const j = await fetchAaPage(key, page);
+    const j = await fetchPage(page);
     models.push(...(j.data || []));
   }
   const withIdx = models.filter((m) => m.evaluations && m.evaluations[AA_IDX] != null);
