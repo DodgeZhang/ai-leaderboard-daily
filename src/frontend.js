@@ -100,6 +100,8 @@ export function renderPage() {
     --seg-active: rgba(255, 255, 255, 0.95);
     --pill-live-bg: rgba(48, 209, 88, 0.16);
     --pill-live-fg: #1b8f3c;
+    --pill-stale-bg: rgba(255, 159, 10, 0.14);
+    --pill-stale-fg: #a05a00;
   }
 
   @media (prefers-color-scheme: dark) {
@@ -117,6 +119,8 @@ export function renderPage() {
       --seg-active: rgba(99, 99, 102, 0.85);
       --pill-live-bg: rgba(48, 209, 88, 0.2);
       --pill-live-fg: #4cd964;
+      --pill-stale-bg: rgba(255, 159, 10, 0.18);
+      --pill-stale-fg: #ffb340;
     }
   }
 
@@ -487,6 +491,7 @@ export function renderPage() {
     font-variant-numeric: tabular-nums;
   }
   .pill.live { background: var(--pill-live-bg); color: var(--pill-live-fg); }
+  .pill.stale { background: var(--pill-stale-bg); color: var(--pill-stale-fg); }
 
   .metric {
     margin-top: 12px;
@@ -709,7 +714,8 @@ export function renderPage() {
   .diag-row .msg { color: var(--text-2); word-break: break-all; }
   .diag-row .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; align-self: center; }
   .diag-row .dot.ok { background: #34c759; }
-  .diag-row .dot.bad { background: #ff9f0a; }
+  .diag-row .dot.warn { background: #ff9f0a; }
+  .diag-row .dot.bad { background: #ff453a; }
 
   .toast {
     position: fixed;
@@ -866,8 +872,10 @@ export function renderPage() {
   }
 
   function statusMeta(s) {
-    // 只有拿到数据的榜单才会渲染，状态只可能是 live
-    return s.status === 'live' ? { cls: 'live', label: '● 实时' } : null;
+    // 只有拿到数据的榜单才会渲染；stale = 本次抓取失败、展示上次成功的数据
+    if (s.status === 'live') return { cls: 'live', label: '● 实时' };
+    if (s.status === 'stale') return { cls: 'stale', label: '⏳ 上次数据' };
+    return null;
   }
 
   /** 截断过长的错误信息，便于在 toast / 诊断区展示 */
@@ -884,15 +892,22 @@ export function renderPage() {
   function updateDiag(data) {
     var all = (data && data.sources) || [];
     var failed = all.filter(function (s) { return !(s.entries && s.entries.length); });
-    if (!failed.length) { diag.hidden = true; diagBody.hidden = true; return; }
+    var stale = all.filter(function (s) { return s.status === 'stale'; });
+    if (!failed.length && !stale.length) { diag.hidden = true; diagBody.hidden = true; return; }
     diag.hidden = false;
-    diagCount.textContent = failed.length + ' 个数据源未就绪 · 查看详情';
+    diagCount.textContent = (failed.length ? failed.length + ' 个数据源未就绪' : '') +
+      (failed.length && stale.length ? ' · ' : '') +
+      (stale.length ? stale.length + ' 个数据源为上次数据' : '') + ' · 查看详情';
     diagBody.innerHTML = all.map(function (s) {
       var ok = s.entries && s.entries.length;
-      return '<div class="diag-row"><span class="dot ' + (ok ? 'ok' : 'bad') + '"></span>' +
-        '<b>' + esc(s.name) + '</b><span class="msg">' +
-        (ok ? '正常 · ' + s.entries.length + ' 款' : esc(shortErr(s.error || '暂无数据', 120))) +
-        '</span></div>';
+      var cls = ok ? (s.status === 'stale' ? 'warn' : 'ok') : 'bad';
+      var msg = ok
+        ? (s.status === 'stale'
+            ? '本次抓取失败，展示上次成功的数据 · ' + s.entries.length + ' 款'
+            : '正常 · ' + s.entries.length + ' 款')
+        : esc(shortErr(s.error || '暂无数据', 120));
+      return '<div class="diag-row"><span class="dot ' + cls + '"></span>' +
+        '<b>' + esc(s.name) + '</b><span class="msg">' + msg + '</span></div>';
     }).join('');
   }
 

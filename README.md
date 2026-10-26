@@ -115,7 +115,7 @@ npx wrangler deploy
 
 ## 日常使用
 
-- **自动更新**：cron 设为每小时整点抓取一次，结果写入 KV；页面访问时若 KV 为空/过期，也会触发一次后台抓取（8 秒内完成）。
+- **自动更新**：cron 设为每小时整点抓取一次，结果写入 KV；页面访问时若 KV 为空/过期，也会触发一次后台抓取（2-9 秒内完成）。某个源抓取失败时（如限流），自动复用上次成功的数据并在卡片上标「⏳ 上次数据」，榜单不会整块消失。
 - **手动刷新**：页面右上角 ⟳ 按钮；或 `curl -X POST https://<域名>/api/refresh`（配了 `REFRESH_TOKEN` 则加 `?token=xxx`）。
 - **查看原始数据**：`curl https://<域名>/api/data`
 - **健康检查 / 故障诊断**：`curl https://<域名>/healthz`——除基本状态外，还报告每个数据源的 `status`/`count`/`error`、`AA_API_KEY` 是否配置，并实时探测一次 AA 接口（`aaProbe`）与 HF datasets-server（`hfProbe`，判断 Worker 出口是否被拦截），最后**完整 dry-run 抓取一次**（`dryRun`：各源状态 + 耗时，不写 KV）——数据不显示时，这个 JSON 一眼可见死在哪一环（可配 UptimeRobot 监控）

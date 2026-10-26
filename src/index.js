@@ -49,9 +49,28 @@ async function saveSnapshot(env, snap) {
   });
 }
 
+/**
+ * 合并旧快照：本次抓取失败的源，若旧快照有成功数据则复用（标 stale），
+ * 避免偶发故障/限流（如 AA 429）导致整个榜单从页面上消失。
+ */
+function mergeStaleSources(prev, snap) {
+  if (!prev) return snap;
+  for (const s of snap.sources) {
+    if (s.status !== 'unavailable') continue;
+    const old = (prev.sources || []).find((x) => x.id === s.id);
+    if (old && old.entries && old.entries.length) {
+      s.status = 'stale';
+      s.entries = old.entries;
+      s.error = String(s.error || '抓取失败') + '（本次抓取失败，展示上次成功的数据）';
+    }
+  }
+  return snap;
+}
+
 async function refreshAndSave(env) {
   try {
-    const snap = await refreshAll(env);
+    const prev = await readSnapshot(env);
+    const snap = mergeStaleSources(prev, await refreshAll(env));
     await saveSnapshot(env, snap);
   } catch (_) {
     // 定时抓取整体失败时不抛出，等下一次 cron
@@ -98,7 +117,8 @@ export default {
           return jsonResponse({ error: '未授权：需要正确的 REFRESH_TOKEN' }, { status: 401 });
         }
       }
-      const snap = await refreshAll(env);
+      const prev = await readSnapshot(env);
+      const snap = mergeStaleSources(prev, await refreshAll(env));
       await saveSnapshot(env, snap);
       return jsonResponse(snap);
     }

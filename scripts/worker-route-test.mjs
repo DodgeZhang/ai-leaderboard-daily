@@ -137,8 +137,39 @@ await t('POST /api/refresh 手动刷新并写入 KV', async () => {
   assert.ok(store.has('data:latest'));
 });
 
+await t('抓取失败的源复用旧快照数据（stale），榜单不消失', async () => {
+  // 预置旧快照：aa-llm 上次成功的数据
+  const prevSnap = {
+    generatedAt: new Date(Date.now() - 3600e3).toISOString(),
+    sources: [{ id: 'aa-llm', name: 'Artificial Analysis', status: 'live', entries: [{ rank: 1, model: 'OldModel', org: 'OpenAI', score: 70 }] }],
+  };
+  store.set('data:latest', JSON.stringify(prevSnap));
+  // mock AA 429：本次抓取 aa-llm 失败
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts = {}) => {
+    if (String(url).includes('artificialanalysis.ai')) {
+      return new Response('{}', { status: 429, headers: { 'content-type': 'application/json' } });
+    }
+    return realFetch(url, opts);
+  };
+  const res = await worker.fetch(new Request('http://localhost/api/refresh', { method: 'POST' }), env, ctx);
+  const data = await res.json();
+  globalThis.fetch = realFetch;
+  const aa = data.sources.find((s) => s.id === 'aa-llm');
+  assert.equal(aa.status, 'stale');          // 标记为「上次数据」
+  assert.equal(aa.entries.length, 1);        // 复用旧条目
+  assert.equal(aa.entries[0].model, 'OldModel');
+  assert.match(aa.error, /上次成功/);
+  // KV 里落盘的也应是合并后的快照
+  const saved = JSON.parse(store.get('data:latest'));
+  assert.equal(saved.sources.find((s) => s.id === 'aa-llm').status, 'stale');
+  // 清理：恢复 KV 空状态，避免影响后续用例（scheduled 会重新写入完整快照）
+  store.delete('data:latest');
+});
+
 await t('scheduled 定时任务写入 KV', async () => {
-  await worker.scheduled({ scheduled: true, cron: '0 8 * * *' }, env, ctx);
+  await worker.scheduled({ scheduled: true, cron: '0 * * * *' }, env, ctx);
+  await flush(); // waitUntil 的后台抓取完成后再断言
   assert.ok(store.has('data:latest'));
   const day = new Date().toISOString().slice(0, 10);
   assert.ok(store.has('data:' + day), '每日归档缺失');
@@ -156,7 +187,7 @@ await t('GET /healthz 健康检查（含数据源诊断）', async () => {
   assert.ok(Array.isArray(data.sources));
   assert.ok(data.sources.length >= 4);
   for (const s of data.sources) {
-    assert.ok(['live', 'empty', 'unavailable'].includes(s.status), s.status);
+    assert.ok(['live', 'empty', 'unavailable', 'stale'].includes(s.status), s.status);
     assert.ok(Number.isInteger(s.count));
   }
   const aa = data.sources.find((s) => s.id === 'aa-llm');
