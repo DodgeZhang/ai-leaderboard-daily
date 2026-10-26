@@ -323,7 +323,7 @@ await ok('applyEntryFilters：关键字 / 厂商 / 开源闭源组合筛选', ()
   assert.equal(entries.length, 4);
 });
 
-// 6. 数据源配置完整性（含展示顺序：Agent 第一、AA 第二）
+// 6. 数据源配置完整性（含展示顺序：AA 第一、Agent 第二）
 await ok('所有数据源字段完整且唯一', () => {
   const ids = new Set();
   for (const s of SOURCES) {
@@ -336,8 +336,8 @@ await ok('所有数据源字段完整且唯一', () => {
     ids.add(s.id);
   }
 });
-await ok('数据源展示顺序：arena-agent → aa-llm → arena-text → arena-search', () => {
-  assert.deepEqual(SOURCES.map((s) => s.id), ['arena-agent', 'aa-llm', 'arena-text', 'arena-search']);
+await ok('数据源展示顺序：aa-llm → arena-agent → arena-text → arena-search', () => {
+  assert.deepEqual(SOURCES.map((s) => s.id), ['aa-llm', 'arena-agent', 'arena-text', 'arena-search']);
 });
 
 globalThis.fetch = realFetch;

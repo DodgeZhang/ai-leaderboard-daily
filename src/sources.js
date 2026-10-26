@@ -236,20 +236,9 @@ async function fetchArtificialAnalysis(env) {
 /**
  * 数据源定义。
  * 数组顺序即页面展示顺序（前端另有 BOARD_ORDER 兜底，旧快照也是这个顺序）：
- * Agent 榜 → Artificial Analysis → 文本总榜 → 搜索榜。
+ * Artificial Analysis → Agent 榜 → 文本总榜 → 搜索榜。
  */
 export const SOURCES = [
-  {
-    id: 'arena-agent',
-    name: 'Arena · Agent 榜',
-    category: 'global',
-    org: 'Arena（UC Berkeley 系）',
-    url: 'https://arena.ai/leaderboard',
-    metric: 'IPS 得分 · 真实 Agent 任务完成率',
-    accent: '#5E5CE6',
-    desc: '在真实工作流中跑 Agent 任务，衡量“能不能把事办成”',
-    fetcher: () => fetchArenaBoard('agent', 'overall', 'ips'),
-  },
   {
     id: 'aa-llm',
     name: 'Artificial Analysis',
@@ -260,6 +249,17 @@ export const SOURCES = [
     accent: '#FF9F0A',
     desc: '统一条件独立实测，同时给出价格与速度，适合看“性价比”；开源判定为名称启发式，仅供参考',
     fetcher: fetchArtificialAnalysis,
+  },
+  {
+    id: 'arena-agent',
+    name: 'Arena · Agent 榜',
+    category: 'global',
+    org: 'Arena（UC Berkeley 系）',
+    url: 'https://arena.ai/leaderboard',
+    metric: 'IPS 得分 · 真实 Agent 任务完成率',
+    accent: '#5E5CE6',
+    desc: '在真实工作流中跑 Agent 任务，衡量“能不能把事办成”',
+    fetcher: () => fetchArenaBoard('agent', 'overall', 'ips'),
   },
   {
     id: 'arena-text',

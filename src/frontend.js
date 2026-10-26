@@ -760,9 +760,9 @@ export function renderPage() {
   /* 组合筛选纯函数（由模块顶层注入，与单元测试共用同一实现） */
   var filterEntries = ${applyEntryFilters};
 
-  /* 榜单展示顺序：Agent 榜 → Artificial Analysis → 文本总榜 → 搜索榜
+  /* 榜单展示顺序：Artificial Analysis → Agent 榜 → 文本总榜 → 搜索榜
      （即使 KV 里是旧顺序的快照，也按这个顺序渲染） */
-  var BOARD_ORDER = ['arena-agent', 'aa-llm', 'arena-text', 'arena-search'];
+  var BOARD_ORDER = ['aa-llm', 'arena-agent', 'arena-text', 'arena-search'];
 
   var state = { data: null, lic: 'all', kw: '', orgs: [], orgQuery: '' };
   var grid = document.getElementById('grid');

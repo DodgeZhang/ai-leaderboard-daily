@@ -19,12 +19,12 @@
 
 | 榜单 | 数据来源 | 抓取方式 |
 |---|---|---|
-| Arena · Agent 榜（第 1 位） | arena.ai | ✅ 实时（Hugging Face 官方数据集 `lmarena-ai/leaderboard-dataset`，免密钥） |
-| Artificial Analysis（第 2 位） | artificialanalysis.ai | 🔑 配置 `AA_API_KEY` 后实时（官方免费 API，分页全量拉取）；未配置时该榜单不显示 |
+| Artificial Analysis（第 1 位） | artificialanalysis.ai | 🔑 配置 `AA_API_KEY` 后实时（官方免费 API，分页全量拉取）；未配置时该榜单不显示 |
+| Arena · Agent 榜（第 2 位） | arena.ai | ✅ 实时（Hugging Face 官方数据集 `lmarena-ai/leaderboard-dataset`，免密钥） |
 | Arena · 文本总榜（第 3 位） | arena.ai | ✅ 实时（同上） |
 | Arena · 搜索榜（第 4 位） | arena.ai | ✅ 实时（同上） |
 
-所有榜单展示**全部条目**（不截断前 N 名）：宽屏下 4 个榜单按 2×2 网格排布，单榜条目过多时在卡片内滚动，每张卡片标注收录总数，顶部显示「N 个榜单 · M 款模型」统计。展示顺序固定为 Agent → Artificial Analysis → 文本 → 搜索（前端按固定顺序渲染，旧数据快照也是这个顺序）。
+所有榜单展示**全部条目**（不截断前 N 名）：宽屏下 4 个榜单按 2×2 网格排布，单榜条目过多时在卡片内滚动，每张卡片标注收录总数，顶部显示「N 个榜单 · M 款模型」统计。展示顺序固定为 Artificial Analysis → Agent → 文本 → 搜索（前端按固定顺序渲染，旧数据快照也是这个顺序）。
 
 **三种筛选可叠加使用**（页面顶部同一行）：
 - **搜索框**：按模型名称 / 厂商关键字模糊匹配（大小写不敏感），右侧 ✕ 一键清空；
