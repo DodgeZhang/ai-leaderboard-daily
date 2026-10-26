@@ -399,7 +399,7 @@ await ok('前端页面包含关键结构与液态玻璃样式', () => {
     '<!DOCTYPE html>', 'backdrop-filter', 'prefers-color-scheme: dark',
     'id="grid"', 'id="boardCount"', '/api/data', '/api/refresh',
     'lmarena-ai/leaderboard-dataset',
-    'grid-template-columns: repeat(2, 1fr)',   // 宽屏 2×2 布局
+    'grid-template-columns: 1fr',              // 榜单切换后一次一个榜单（整宽单列）
     'max-height: min(58vh, 620px)',            // 卡片内滚动
     'data-lic="open"', '仅开源', '仅闭源',       // 开源/闭源筛选
     'prefers-reduced-motion',
@@ -413,6 +413,17 @@ await ok('前端页面包含关键结构与液态玻璃样式', () => {
     'BOARD_ORDER',                             // 固定展示顺序
     '[hidden] { display: none !important; }',  // hidden 显隐兜底（否则面板/✕/诊断区被 display 强制显示）
     'z-index: 40',                             // header 抬升堆叠层级（下拉面板不被榜单卡片盖住）
+    // ---- 榜单切换按钮排（默认 Artificial Analysis）----
+    'id="boardTabs"', 'aria-label="榜单切换"',
+    'data-board="aa-llm" class="active"',      // 默认激活 AA
+    'data-board="arena-agent"', 'data-board="arena-text"', 'data-board="arena-search"',
+    'id="tabCount-aa-llm"', 'class="bt-count"', // 按钮上的条目计数
+    'Agent 榜', '文本总榜', '搜索榜',            // 按钮短名
+    "board: 'aa-llm'",                         // state 默认榜单
+    'BOARD_LABELS', 'syncTabs', 'updateTabCounts', // 切换 / 计数逻辑
+    // ---- iOS 液态玻璃控件 ----
+    '--lg-blur', '--lg-specular', '--lg-active-bg', // 玻璃令牌（模糊+镜面高光+激活材质）
+    'saturate(180%)',
   ]) {
     assert.ok(html.includes(marker), 'missing: ' + marker);
   }
@@ -466,15 +477,27 @@ await ok('页面脚本对打包器 __name 注入免疫（vm 内不提供 __name 
   assert.ok(start >= 0 && endMark > start, '未定位注入点');
   script = script.slice(0, start) + 'var filterEntries = ' + bundled + script.slice(endMark);
 
-  // 最小 DOM 桩：按 id 惰性创建元素
-  const mkEl = () => ({
-    innerHTML: '', textContent: '', value: '', checked: false,
-    style: {},
-    classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
-    addEventListener() {}, setAttribute() {}, getAttribute() { return null; },
-    querySelectorAll() { return []; }, querySelector() { return null; },
-    closest() { return null; }, appendChild() {},
-  });
+  // 最小 DOM 桩：按 id 惰性创建元素；classList 真实记录类名（断言激活态用）
+  const mkEl = () => {
+    const classes = new Set();
+    return {
+      innerHTML: '', textContent: '', value: '', checked: false,
+      style: {},
+      classList: {
+        add: (c) => classes.add(c),
+        remove: (c) => classes.delete(c),
+        toggle: (c, force) => {
+          const on = force === true ? true : force === false ? false : !classes.has(c);
+          if (on) classes.add(c); else classes.delete(c);
+        },
+        contains: (c) => classes.has(c),
+      },
+      _classes: classes,
+      addEventListener() {}, setAttribute() {}, getAttribute() { return null; },
+      querySelectorAll() { return []; }, querySelector() { return null; },
+      closest() { return null; }, appendChild() {},
+    };
+  };
   const byId = {};
   const documentStub = {
     getElementById(id) { return byId[id] || (byId[id] = mkEl()); },
@@ -484,15 +507,25 @@ await ok('页面脚本对打包器 __name 注入免疫（vm 内不提供 __name 
 
   const fixture = {
     generatedAt: new Date().toISOString(),
-    sources: [{
-      id: 'arena-agent', name: 'Arena Agent 榜', category: 'agent', org: 'LMArena',
-      url: 'https://lmarena.ai', metric: 'Arena Score', accent: '#0a84ff', desc: 'd',
-      status: 'live', error: null,
-      entries: [
-        { rank: 1, model: 'Claude Opus 4.5', org: 'Anthropic', score: 1480, open: false },
-        { rank: 2, model: 'DeepSeek V4', org: 'DeepSeek', score: 1450, open: true },
-      ],
-    }],
+    sources: [
+      {
+        id: 'aa-llm', name: 'Artificial Analysis', category: 'llm', org: 'Artificial Analysis',
+        url: 'https://artificialanalysis.ai', metric: 'Intelligence Index', accent: '#FF9F0A', desc: 'd',
+        status: 'live', error: null,
+        entries: [
+          { rank: 1, model: 'Claude Opus 4.5', org: 'Anthropic', score: 73, open: false },
+          { rank: 2, model: 'DeepSeek V4', org: 'DeepSeek', score: 71, open: true },
+        ],
+      },
+      {
+        id: 'arena-agent', name: 'Arena · Agent 榜', category: 'agent', org: 'LMArena',
+        url: 'https://lmarena.ai', metric: 'Arena Score', accent: '#5E5CE6', desc: 'd',
+        status: 'live', error: null,
+        entries: [
+          { rank: 1, model: 'Gemini 4 Agent', org: 'Google', score: 1480, open: false },
+        ],
+      },
+    ],
   };
 
   const sandbox = {
@@ -509,10 +542,22 @@ await ok('页面脚本对打包器 __name 注入免疫（vm 内不提供 __name 
   for (let i = 0; i < 20; i++) await Promise.resolve();
 
   const grid = byId['grid'];
+  // 默认榜单 = Artificial Analysis：渲染 AA 条目
   assert.ok(grid.innerHTML.includes('Claude Opus 4.5'),
-    '榜单未渲染出条目（疑似 __name 未定义）grid=' + grid.innerHTML.slice(0, 160));
+    '默认榜单未渲染出 AA 条目（疑似 __name 未定义）grid=' + grid.innerHTML.slice(0, 160));
+  // 按钮排隔离：一次只显示当前榜单，Arena 条目不应出现
+  assert.ok(!grid.innerHTML.includes('Gemini 4 Agent'),
+    '非当前榜单的条目被渲染出来了（按钮切换隔离失效）');
   assert.ok(!grid.innerHTML.includes('⚠️'), '渲染兜底被触发: ' + grid.innerHTML.slice(0, 200));
   assert.ok(byId['updatedAt'].textContent.includes('更新于'), 'updatedAt 未更新');
+  // 按钮排激活态与计数
+  assert.ok(byId['tab-aa-llm']._classes.has('active'), 'AA 按钮未激活');
+  assert.ok(!byId['tab-arena-agent']._classes.has('active'), 'Arena 按钮不应激活');
+  assert.equal(byId['tabCount-aa-llm'].textContent, '2', 'AA 按钮计数错误');
+  assert.equal(byId['tabCount-arena-agent'].textContent, '1', 'Arena 按钮计数错误');
+  // 顶部统计 = 当前榜单
+  assert.ok(byId['boardCount'].textContent.includes('Artificial Analysis · 2 款模型'),
+    'boardCount 未反映当前榜单: ' + byId['boardCount'].textContent);
 });
 
 // 5. 组合筛选（开源/闭源 + 关键字 + 厂商多选，可叠加）

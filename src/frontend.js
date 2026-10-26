@@ -96,12 +96,22 @@ export function renderPage() {
     --glass-shadow: 0 20px 50px -12px rgba(80, 90, 160, 0.22), 0 4px 14px -6px rgba(80, 90, 160, 0.12);
     --row-bg: rgba(255, 255, 255, 0.38);
     --row-hover: rgba(255, 255, 255, 0.72);
-    --seg-bg: rgba(120, 120, 128, 0.16);
-    --seg-active: rgba(255, 255, 255, 0.95);
     --pill-live-bg: rgba(48, 209, 88, 0.16);
     --pill-live-fg: #1b8f3c;
     --pill-stale-bg: rgba(255, 159, 10, 0.14);
     --pill-stale-fg: #a05a00;
+
+    /* ---------- iOS 液态玻璃令牌 ----------
+       材质 = 半透明底 + 背景模糊/饱和度提升 + 顶部镜面高光 + 柔和外投影；
+       所有按钮 / 搜索框 / 下拉框统一复用，保证全站控件同一材质语言。 */
+    --lg-blur: blur(30px) saturate(180%);
+    --lg-bg: rgba(255, 255, 255, 0.42);
+    --lg-bg-hi: rgba(255, 255, 255, 0.62);
+    --lg-active-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.66));
+    --lg-stroke: rgba(255, 255, 255, 0.6);
+    --lg-specular: inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 -1px 0 rgba(255, 255, 255, 0.12);
+    --lg-shadow: 0 10px 28px -10px rgba(80, 90, 160, 0.3), 0 2px 8px -4px rgba(80, 90, 160, 0.14);
+    --lg-ring: 0 0 0 3.5px rgba(10, 132, 255, 0.18);
   }
 
   @media (prefers-color-scheme: dark) {
@@ -115,12 +125,19 @@ export function renderPage() {
       --glass-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.5), 0 4px 14px -6px rgba(0, 0, 0, 0.35);
       --row-bg: rgba(255, 255, 255, 0.06);
       --row-hover: rgba(255, 255, 255, 0.12);
-      --seg-bg: rgba(120, 120, 128, 0.24);
-      --seg-active: rgba(99, 99, 102, 0.85);
       --pill-live-bg: rgba(48, 209, 88, 0.2);
       --pill-live-fg: #4cd964;
       --pill-stale-bg: rgba(255, 159, 10, 0.18);
       --pill-stale-fg: #ffb340;
+
+      --lg-blur: blur(30px) saturate(160%);
+      --lg-bg: rgba(120, 120, 128, 0.22);
+      --lg-bg-hi: rgba(44, 44, 50, 0.74);
+      --lg-active-bg: linear-gradient(180deg, rgba(99, 99, 102, 0.95), rgba(72, 72, 76, 0.85));
+      --lg-stroke: rgba(255, 255, 255, 0.14);
+      --lg-specular: inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+      --lg-shadow: 0 10px 28px -10px rgba(0, 0, 0, 0.55), 0 2px 8px -4px rgba(0, 0, 0, 0.4);
+      --lg-ring: 0 0 0 3.5px rgba(10, 132, 255, 0.28);
     }
   }
 
@@ -185,7 +202,7 @@ export function renderPage() {
     -webkit-backdrop-filter: blur(28px) saturate(180%);
     backdrop-filter: blur(28px) saturate(180%);
     border: 1px solid var(--glass-border);
-    box-shadow: var(--glass-shadow);
+    box-shadow: var(--glass-shadow), var(--lg-specular);
     border-radius: 28px;
   }
 
@@ -233,9 +250,13 @@ export function renderPage() {
   .meta-pill {
     font-size: 12.5px;
     color: var(--text-2);
-    background: var(--row-bg);
+    background: var(--lg-bg);
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
+    backdrop-filter: blur(16px) saturate(160%);
+    border: 1px solid var(--lg-stroke);
+    box-shadow: var(--lg-specular);
     border-radius: 999px;
-    padding: 6px 12px;
+    padding: 6px 13px;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
@@ -251,17 +272,22 @@ export function renderPage() {
   .search-box {
     flex: 1 1 230px;
     min-width: 190px;
-    height: 34px;
+    height: 36px;
     display: flex;
     align-items: center;
     gap: 7px;
-    background: var(--seg-bg);
-    border-radius: 12px;
-    padding: 0 11px;
-    transition: box-shadow 0.25s;
+    background: var(--lg-bg);
+    -webkit-backdrop-filter: var(--lg-blur);
+    backdrop-filter: var(--lg-blur);
+    border: 1px solid var(--lg-stroke);
+    box-shadow: var(--lg-specular);
+    border-radius: 999px;
+    padding: 0 14px;
+    transition: box-shadow 0.25s, border-color 0.25s;
   }
   .search-box:focus-within {
-    box-shadow: 0 0 0 2px rgba(10, 132, 255, 0.45);
+    border-color: rgba(10, 132, 255, 0.55);
+    box-shadow: var(--lg-specular), var(--lg-ring);
   }
   .search-box .s-ico { font-size: 12px; opacity: 0.55; flex: none; }
   .search-box input {
@@ -277,29 +303,35 @@ export function renderPage() {
   .search-box input::placeholder { color: var(--text-2); opacity: 0.85; }
   .s-clear {
     flex: none;
-    border: 0;
-    background: rgba(120, 120, 128, 0.2);
+    border: 1px solid var(--lg-stroke);
+    background: var(--lg-bg);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
     color: var(--text-2);
-    width: 18px;
-    height: 18px;
+    width: 19px;
+    height: 19px;
     border-radius: 50%;
-    font-size: 11px;
+    font-size: 10px;
     line-height: 1;
     cursor: pointer;
     display: grid;
     place-items: center;
     padding: 0;
+    transition: background 0.2s, color 0.2s, transform 0.2s;
   }
-  .s-clear:hover { background: rgba(120, 120, 128, 0.35); color: var(--text-1); }
+  .s-clear:hover { background: var(--lg-bg-hi); color: var(--text-1); transform: scale(1.08); }
 
-  /* 厂商多选下拉 */
+  /* 厂商 / 价格多选下拉（液态玻璃） */
   .multi { position: relative; }
   .multi-toggle {
-    height: 34px;
-    border: 0;
-    background: var(--seg-bg);
-    border-radius: 12px;
-    padding: 0 12px;
+    height: 36px;
+    border: 1px solid var(--lg-stroke);
+    background: var(--lg-bg);
+    -webkit-backdrop-filter: var(--lg-blur);
+    backdrop-filter: var(--lg-blur);
+    box-shadow: var(--lg-specular);
+    border-radius: 999px;
+    padding: 0 16px;
     font: inherit;
     font-size: 13px;
     font-weight: 600;
@@ -309,53 +341,61 @@ export function renderPage() {
     align-items: center;
     gap: 7px;
     white-space: nowrap;
-    transition: color 0.25s;
+    transition: color 0.25s, transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), border-color 0.25s;
   }
-  .multi-toggle:hover, .multi-toggle.active { color: var(--text-1); }
+  .multi-toggle:hover, .multi-toggle.active {
+    color: var(--text-1);
+    border-color: rgba(10, 132, 255, 0.45);
+    transform: translateY(-1px);
+  }
   .multi-toggle .caret { font-style: normal; font-size: 9px; opacity: 0.7; }
   .multi-panel {
     position: absolute;
-    top: calc(100% + 6px);
+    top: calc(100% + 8px);
     left: 0;
-    width: 252px;
+    width: 256px;
     max-height: 348px;
     display: flex;
     flex-direction: column;
-    background: var(--glass-bg-strong);
-    -webkit-backdrop-filter: blur(24px);
-    backdrop-filter: blur(24px);
-    border: 1px solid var(--glass-border);
-    border-radius: 14px;
-    box-shadow: var(--glass-shadow);
+    background: var(--lg-bg-hi);
+    -webkit-backdrop-filter: blur(32px) saturate(180%);
+    backdrop-filter: blur(32px) saturate(180%);
+    border: 1px solid var(--lg-stroke);
+    border-radius: 20px;
+    box-shadow: var(--lg-shadow), var(--lg-specular);
     z-index: 30;
-    padding: 8px;
+    padding: 10px;
     animation: pop 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
   @keyframes pop { from { opacity: 0; transform: translateY(-4px) scale(0.98); } }
   .multi-panel input.m-filter {
     width: 100%;
-    border: 0;
+    border: 1px solid var(--lg-stroke);
     outline: 0;
-    background: var(--seg-bg);
-    border-radius: 9px;
-    padding: 7px 10px;
+    background: var(--lg-bg);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    border-radius: 999px;
+    padding: 7px 13px;
     font: inherit;
     font-size: 12.5px;
     color: var(--text-1);
-    margin-bottom: 6px;
+    margin-bottom: 7px;
   }
+  .multi-panel input.m-filter:focus { border-color: rgba(10, 132, 255, 0.55); }
   .multi-panel input.m-filter::placeholder { color: var(--text-2); }
   .multi-list { overflow-y: auto; overscroll-behavior: contain; }
   .multi-item {
     display: flex;
     align-items: center;
     gap: 9px;
-    padding: 7px 8px;
-    border-radius: 9px;
+    padding: 7px 10px;
+    border-radius: 12px;
     font-size: 13px;
     color: var(--text-1);
     cursor: pointer;
     user-select: none;
+    transition: background 0.2s;
   }
   .multi-item:hover { background: var(--row-hover); }
   .multi-item input { accent-color: #0a84ff; margin: 0; flex: none; }
@@ -381,36 +421,41 @@ export function renderPage() {
     width: 44px;
     height: 44px;
     border-radius: 50%;
-    border: 1px solid var(--glass-border);
-    background: var(--glass-bg-strong);
-    -webkit-backdrop-filter: blur(16px);
-    backdrop-filter: blur(16px);
+    border: 1px solid var(--lg-stroke);
+    background: var(--lg-bg);
+    -webkit-backdrop-filter: var(--lg-blur);
+    backdrop-filter: var(--lg-blur);
+    box-shadow: var(--lg-shadow), var(--lg-specular);
     color: var(--text-1);
     font-size: 19px;
     cursor: pointer;
     display: grid;
     place-items: center;
     transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s;
-    box-shadow: 0 6px 18px -6px rgba(80, 90, 160, 0.3);
   }
   .icon-btn:hover { transform: scale(1.08); }
   .icon-btn:active { transform: scale(0.94); }
   .icon-btn.spinning span { display: inline-block; animation: spin 0.9s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* iOS 分段控件（开源 / 闭源筛选） */
+  /* iOS 分段控件（开源 / 闭源筛选）——液态玻璃轨道 + 镜面滑块 */
   .seg {
     display: inline-flex;
-    background: var(--seg-bg);
-    border-radius: 14px;
-    padding: 2.5px;
+    background: var(--lg-bg);
+    -webkit-backdrop-filter: var(--lg-blur);
+    backdrop-filter: var(--lg-blur);
+    border: 1px solid var(--lg-stroke);
+    box-shadow: var(--lg-specular);
+    border-radius: 999px;
+    padding: 3px;
     gap: 2px;
+    height: 36px;
   }
   .seg button {
     border: 0;
     background: transparent;
-    padding: 7px 15px;
-    border-radius: 12px;
+    padding: 0 16px;
+    border-radius: 999px;
     font-size: 13px;
     font-weight: 600;
     color: var(--text-2);
@@ -419,20 +464,87 @@ export function renderPage() {
     transition: background 0.25s, color 0.25s, box-shadow 0.25s;
     white-space: nowrap;
   }
+  .seg button:hover { color: var(--text-1); }
   .seg button.active {
-    background: var(--seg-active);
+    background: var(--lg-active-bg);
     color: var(--text-1);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  }
+  @media (prefers-color-scheme: dark) {
+    .seg button.active { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.16); }
   }
 
-  /* ---------- 卡片网格：宽屏 2×2（正好容纳 4 个榜单） ---------- */
+  /* ---------- 榜单切换按钮排（iOS 液态玻璃） ---------- */
+  .board-tabs {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+    padding: 8px;
+  }
+  .board-tabs button {
+    flex: 1 1 150px;
+    min-width: 140px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 1px solid var(--lg-stroke);
+    background: var(--lg-bg);
+    -webkit-backdrop-filter: var(--lg-blur);
+    backdrop-filter: var(--lg-blur);
+    box-shadow: var(--lg-shadow), var(--lg-specular);
+    border-radius: 999px;
+    padding: 10px 16px;
+    font: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text-2);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.25s,
+      background 0.25s, box-shadow 0.25s, border-color 0.25s;
+  }
+  .board-tabs button:hover { color: var(--text-1); transform: translateY(-2px); }
+  .board-tabs button:active { transform: scale(0.96); }
+  .board-tabs button.active {
+    color: var(--text-1);
+    background: var(--lg-active-bg);
+    border-color: var(--accent);
+    box-shadow: 0 14px 30px -12px rgba(80, 90, 160, 0.42), var(--lg-specular);
+  }
+  /* 榜单标识色圆点（与卡片顶部 accent 高光同色） */
+  .board-tabs .bt-dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    opacity: 0.5;
+    transition: opacity 0.25s, transform 0.25s;
+  }
+  .board-tabs button.active .bt-dot { opacity: 1; transform: scale(1.2); }
+  .board-tabs .bt-count {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-2);
+    background: rgba(120, 120, 128, 0.14);
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-variant-numeric: tabular-nums;
+    transition: background 0.25s, color 0.25s;
+  }
+  .board-tabs button.active .bt-count {
+    color: #fff;
+    background: var(--accent);
+  }
+
+  /* ---------- 卡片网格：榜单按钮切换后一次只展示一个榜单（整宽） ---------- */
   .grid {
     display: grid;
     grid-template-columns: 1fr;
     gap: 20px;
-  }
-  @media (min-width: 760px) {
-    .grid { grid-template-columns: repeat(2, 1fr); }
   }
 
   .card {
@@ -635,29 +747,37 @@ export function renderPage() {
     font-weight: 600;
     text-decoration: none;
     color: var(--accent);
-    background: rgba(120, 120, 128, 0.1);
-    padding: 7px 13px;
+    background: var(--lg-bg);
+    -webkit-backdrop-filter: blur(12px) saturate(160%);
+    backdrop-filter: blur(12px) saturate(160%);
+    border: 1px solid var(--lg-stroke);
+    box-shadow: var(--lg-specular);
+    padding: 7px 14px;
     border-radius: 999px;
     transition: background 0.2s, transform 0.2s;
     white-space: nowrap;
   }
-  .go:hover { background: rgba(120, 120, 128, 0.2); transform: scale(1.04); }
+  .go:hover { background: var(--lg-bg-hi); transform: scale(1.04); }
 
-  /* ---------- 空状态 ---------- */
+  /* ---------- 空状态（独立玻璃卡片：榜单无数据 / 筛选无结果） ---------- */
   .empty-state {
-    margin-top: 12px;
-    padding: 22px 14px;
+    padding: 46px 24px;
     text-align: center;
-    background: var(--row-bg);
-    border-radius: 16px;
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(28px) saturate(180%);
+    backdrop-filter: blur(28px) saturate(180%);
+    border: 1px solid var(--glass-border);
+    border-radius: 28px;
+    box-shadow: var(--glass-shadow), var(--lg-specular);
   }
   .empty-state .ico { font-size: 26px; }
   .empty-state p {
     margin-top: 8px;
     font-size: 12.5px;
     color: var(--text-2);
-    line-height: 1.6;
+    line-height: 1.7;
   }
+  .empty-state p b { color: var(--text-1); font-size: 14px; }
 
   /* ---------- 骨架屏 ---------- */
   .sk {
@@ -796,6 +916,22 @@ export function renderPage() {
     </div>
   </header>
 
+  <!-- 榜单切换按钮排：点哪个显示哪个榜单，默认 Artificial Analysis -->
+  <nav class="board-tabs glass" id="boardTabs" aria-label="榜单切换">
+    <button type="button" id="tab-aa-llm" data-board="aa-llm" class="active" style="--accent:#FF9F0A">
+      <i class="bt-dot"></i><span>Artificial Analysis</span><span class="bt-count" id="tabCount-aa-llm">—</span>
+    </button>
+    <button type="button" id="tab-arena-agent" data-board="arena-agent" style="--accent:#5E5CE6">
+      <i class="bt-dot"></i><span>Agent 榜</span><span class="bt-count" id="tabCount-arena-agent">—</span>
+    </button>
+    <button type="button" id="tab-arena-text" data-board="arena-text" style="--accent:#0A84FF">
+      <i class="bt-dot"></i><span>文本总榜</span><span class="bt-count" id="tabCount-arena-text">—</span>
+    </button>
+    <button type="button" id="tab-arena-search" data-board="arena-search" style="--accent:#64D2FF">
+      <i class="bt-dot"></i><span>搜索榜</span><span class="bt-count" id="tabCount-arena-search">—</span>
+    </button>
+  </nav>
+
   <main class="grid" id="grid"></main>
 
   <footer class="glass">
@@ -804,10 +940,10 @@ export function renderPage() {
       <div class="diag-body" id="diagBody" hidden></div>
     </div>
     <p><b>数据来源</b>：Arena（Hugging Face 官方数据集 lmarena-ai/leaderboard-dataset）· Artificial Analysis（配置 API Key 后显示）</p>
-    <p><b>价格</b>：混合价 = 输入价 ×3 + 输出价按 3:1 折算（美元/百万 tokens），仅 Artificial Analysis 榜提供价格数据——价格筛选生效时，Arena 各榜因无价格数据不参与展示。</p>
+    <p><b>价格</b>：混合价 = 输入价 ×3 + 输出价按 3:1 折算（美元/百万 tokens），仅 Artificial Analysis 榜提供价格数据——价格筛选生效时，Arena 各榜因无价格数据会显示为空。</p>
     <p><b>开源 / 闭源</b>：Arena 各榜按官方 license 字段判定，准确；Artificial Analysis 接口不提供 license，按模型名称/发布方启发式判定，仅供参考。</p>
     <p><b>怎么看</b>：Arena 是真人盲测偏好，Artificial Analysis 是独立实测综合分——口径不同，建议交叉参考；头部模型分差常带置信区间，可能是统计意义上的并列。</p>
-    <p>本页面只展示成功抓取到数据的榜单 · Cloudflare Worker 每日自动更新 · 数据版权归各榜单官方所有</p>
+    <p>点上方榜单按钮切换视图 · 只展示成功抓取到数据的榜单 · Cloudflare Worker 每小时自动更新 · 数据版权归各榜单官方所有</p>
   </footer>
 </div>
 
@@ -829,12 +965,22 @@ export function renderPage() {
      （即使 KV 里是旧顺序的快照，也按这个顺序渲染） */
   var BOARD_ORDER = ['aa-llm', 'arena-agent', 'arena-text', 'arena-search'];
 
-  var state = { data: null, lic: 'all', kw: '', orgs: [], orgQuery: '', prices: [] };
+  /* 各榜单短名（按钮排 / 顶部统计用） */
+  var BOARD_LABELS = {
+    'aa-llm': 'Artificial Analysis',
+    'arena-agent': 'Agent 榜',
+    'arena-text': '文本总榜',
+    'arena-search': '搜索榜',
+  };
+
+  /* board：当前展示的榜单 id，默认 Artificial Analysis（按钮排切换） */
+  var state = { data: null, board: 'aa-llm', lic: 'all', kw: '', orgs: [], orgQuery: '', prices: [] };
   var grid = document.getElementById('grid');
   var updatedAt = document.getElementById('updatedAt');
   var boardCount = document.getElementById('boardCount');
   var refreshBtn = document.getElementById('refreshBtn');
   var seg = document.getElementById('seg');
+  var boardTabs = document.getElementById('boardTabs');
   var toast = document.getElementById('toast');
   var diag = document.getElementById('diag');
   var diagToggle = document.getElementById('diagToggle');
@@ -1048,48 +1194,96 @@ export function renderPage() {
     priceToggle.classList.toggle('active', state.prices.length > 0);
   }
 
-  /** 顶部「N 个榜单 · M 款模型」随筛选联动 */
+  /** 当前生效的筛选条件描述（空状态提示用） */
+  function filterTips() {
+    var tips = [];
+    if (state.kw) tips.push('关键字「' + state.kw + '」');
+    if (state.orgs.length) tips.push('厂商（' + state.orgs.length + ' 家）');
+    if (state.prices.length) {
+      tips.push('价格（' + state.prices.map(function (id) {
+        var t = PRICE_TIERS.filter(function (x) { return x.id === id; })[0];
+        return t ? t.label : id;
+      }).join(' / ') + '）');
+    }
+    if (state.lic !== 'all') tips.push(state.lic === 'open' ? '仅开源' : '仅闭源');
+    return tips;
+  }
+
+  /** 独立空状态卡片（榜单无数据 / 筛选无结果 / 渲染失败）。
+      title 会转义；msgHtml 由调用方自行转义后拼入。 */
+  function emptyCard(ico, title, msgHtml) {
+    return '<div class="empty-state"><div class="ico">' + ico + '</div><p><b>' + esc(title) + '</b>' +
+      (msgHtml ? '<br>' + msgHtml : '') + '</p></div>';
+  }
+
+  /** 按钮排激活态：与 state.board 同步 */
+  function syncTabs() {
+    for (var i = 0; i < BOARD_ORDER.length; i++) {
+      var btn = document.getElementById('tab-' + BOARD_ORDER[i]);
+      if (btn) btn.classList.toggle('active', BOARD_ORDER[i] === state.board);
+    }
+  }
+
+  /** 各榜单按钮上的条目计数（随筛选联动；无数据显示 —） */
+  function updateTabCounts() {
+    var srcs = (state.data && state.data.sources) || [];
+    for (var i = 0; i < BOARD_ORDER.length; i++) {
+      var el = document.getElementById('tabCount-' + BOARD_ORDER[i]);
+      if (!el) continue;
+      var src = null;
+      for (var j = 0; j < srcs.length; j++) {
+        if (srcs[j].id === BOARD_ORDER[i]) { src = srcs[j]; break; }
+      }
+      var n = src ? filterEntries(src.entries || [], state).length : 0;
+      el.textContent = n > 0 ? String(n) : '—';
+    }
+  }
+
+  /** 顶部「当前榜单 · N 款模型」随切换与筛选联动 */
   function syncCount() {
-    if (!state.data) return;
-    var st = stats(state.data);
-    boardCount.textContent = st.boards ? (st.boards + ' 个榜单 · ' + st.models + ' 款模型') : '';
+    if (!state.data) { boardCount.textContent = ''; return; }
+    var srcs = state.data.sources || [];
+    var src = null;
+    for (var i = 0; i < srcs.length; i++) {
+      if (srcs[i].id === state.board) { src = srcs[i]; break; }
+    }
+    var n = src ? filterEntries(src.entries || [], state).length : 0;
+    boardCount.textContent = (BOARD_LABELS[state.board] || state.board) + ' · ' + n + ' 款模型';
   }
 
   function render() {
-    if (!state.data) { grid.innerHTML = skeleton(4); return; }
-    // 组合筛选（开源/闭源 + 关键字 + 厂商多选，可叠加）；只渲染筛完仍有条目的榜单
-    var list = (state.data.sources || [])
-      .map(function (s) {
-        return Object.assign({}, s, { entries: filterEntries(s.entries || [], state) });
-      })
-      .filter(function (s) { return s.entries.length > 0; });
-    // 固定展示顺序：Agent → AA → 文本 → 搜索（旧快照也按此顺序）
-    list.sort(function (a, b) {
-      var ia = BOARD_ORDER.indexOf(a.id); if (ia < 0) ia = 99;
-      var ib = BOARD_ORDER.indexOf(b.id); if (ib < 0) ib = 99;
-      return ia - ib;
-    });
-    if (!list.length) {
-      var tips = [];
-      if (state.kw) tips.push('关键字「' + state.kw + '」');
-      if (state.orgs.length) tips.push('厂商（' + state.orgs.length + ' 家）');
-      if (state.prices.length) {
-        tips.push('价格（' + state.prices.map(function (id) {
-          var t = PRICE_TIERS.filter(function (x) { return x.id === id; })[0];
-          return t ? t.label : id;
-        }).join(' / ') + '）');
-      }
-      if (state.lic !== 'all') tips.push(state.lic === 'open' ? '仅开源' : '仅闭源');
-      var cold = !tips.length;
-      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="ico">' +
-        (cold ? '⏳' : '🔍') + '</div><p>' +
-        (cold
-          ? '数据抓取中，请稍候…<br>首次访问约需十几秒，也可点右上角 ⟳ 手动刷新'
-          : '没有符合 ' + tips.join(' + ') + ' 的模型，试试放宽条件') +
-        '</p></div>';
-      return;
+    if (!state.data) { grid.innerHTML = skeleton(1); return; }
+    // 榜单按钮切换：一次只渲染当前榜单；组合筛选（开源/闭源 + 关键字 +
+    // 厂商多选 + 价格多选）对该榜单的条目生效
+    var srcs = state.data.sources || [];
+    var src = null;
+    for (var i = 0; i < srcs.length; i++) {
+      if (srcs[i].id === state.board) { src = srcs[i]; break; }
     }
-    grid.innerHTML = list.map(cardHtml).join('');
+    if (!src) {
+      // 快照里一个源都没有 = 冷启动（KV 还是空的，后台正在抓）；
+      // 有源但缺这个 = 该榜单未接入/快照缺失
+      grid.innerHTML = srcs.length
+        ? emptyCard('📭', '该榜单暂无数据', '数据源未接入，或当前快照中缺失')
+        : emptyCard('⏳', '数据抓取中，请稍候…', '首次访问约需十几秒，也可点右上角 ⟳ 手动刷新');
+    } else {
+      var entries = filterEntries(src.entries || [], state);
+      if (entries.length) {
+        grid.innerHTML = cardHtml(Object.assign({}, src, { entries: entries }), 0);
+      } else if ((src.entries || []).length) {
+        // 有原始数据但被筛选清空 → 提示当前条件
+        grid.innerHTML = emptyCard('🔍', '没有符合当前筛选的模型',
+          '当前条件：' + esc(filterTips().join(' + ')) + '，试试放宽条件');
+      } else {
+        // 榜单自身没抓到数据 → 直接暴露原因（stale 有数据时走上面的卡片分支）
+        grid.innerHTML = emptyCard('⚠️', src.name + ' 暂无数据',
+          esc(shortErr(src.error || '抓取失败', 100)) +
+          '<br>可点右上角 ⟳ 手动刷新，或在页脚查看数据源诊断');
+      }
+    }
+    syncTabs();
+    updateTabCounts();
+    syncCount();
   }
 
   function showToast(msg, ms) {
@@ -1118,19 +1312,17 @@ export function renderPage() {
           state.data = data;
           loadRetries = 0;
           updatedAt.textContent = '更新于 ' + relTime(data.generatedAt);
-          var st = stats(data);
-          boardCount.textContent = st.boards ? (st.boards + ' 个榜单 · ' + st.models + ' 款模型') : '';
-          render();
+          render(); // 内部同步：按钮激活态 / 各榜计数 / 顶部统计
           renderOrgList();
           renderPriceList();
           updateDiag(data);
           // 冷启动：KV 里还没有数据时，后台抓取需要十几秒，自动重试几次
-          if (!st.boards && coldRetries < 12) {
+          if (!stats(data).boards && coldRetries < 12) {
             coldRetries++;
             setTimeout(load, 3000);
           }
         } catch (renderErr) {
-          grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="ico">⚠️</div>' +
+          grid.innerHTML = '<div class="empty-state"><div class="ico">⚠️</div>' +
             '<p>数据已加载，但页面渲染出错<br>' +
             '<span style="font-size:12px;opacity:.7">' + esc((renderErr && renderErr.message) || renderErr) +
             ' · 可尝试 Ctrl+F5 强制刷新，或访问 /healthz 查看服务端状态</span></p></div>';
@@ -1144,7 +1336,7 @@ export function renderPage() {
           setTimeout(load, 3000);
           return;
         }
-        grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="ico">📡</div>' +
+        grid.innerHTML = '<div class="empty-state"><div class="ico">📡</div>' +
           '<p>数据加载失败，请检查网络后重试<br>' +
           '<span style="font-size:12px;opacity:.7">连续 ' + MAX_LOAD_RETRIES + ' 次请求未成功（' +
           String((err && err.message) || '网络错误') + '）· 可访问 /healthz 查看服务端状态</span></p></div>';
@@ -1160,9 +1352,7 @@ export function renderPage() {
           state.data = data;
           coldRetries = 0;
           updatedAt.textContent = '更新于 ' + relTime(data.generatedAt);
-          var st = stats(data);
-          boardCount.textContent = st.boards ? (st.boards + ' 个榜单 · ' + st.models + ' 款模型') : '';
-          render();
+          render(); // 内部同步：按钮激活态 / 各榜计数 / 顶部统计
           renderOrgList();
           renderPriceList();
           updateDiag(data);
@@ -1178,7 +1368,7 @@ export function renderPage() {
           showToast(msg, bad.length ? 9000 : 2600);
         } catch (renderErr) {
           // 同 load()：渲染崩了要可见，不能假装成功
-          grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="ico">⚠️</div>' +
+          grid.innerHTML = '<div class="empty-state"><div class="ico">⚠️</div>' +
             '<p>数据已刷新，但页面渲染出错<br>' +
             '<span style="font-size:12px;opacity:.7">' + esc((renderErr && renderErr.message) || renderErr) +
             ' · 可尝试 Ctrl+F5 强制刷新</span></p></div>';
@@ -1199,21 +1389,13 @@ export function renderPage() {
   searchInput.addEventListener('input', function () {
     state.kw = searchInput.value;
     searchClear.hidden = !state.kw;
-    render();
-    if (state.data) {
-      var st = stats(state.data);
-      boardCount.textContent = st.boards ? (st.boards + ' 个榜单 · ' + st.models + ' 款模型') : '';
-    }
+    render(); // render 内部同步各榜计数与顶部统计
   });
   searchClear.addEventListener('click', function () {
     searchInput.value = '';
     state.kw = '';
     searchClear.hidden = true;
     render();
-    if (state.data) {
-      var st2 = stats(state.data);
-      boardCount.textContent = st2.boards ? (st2.boards + ' 个榜单 · ' + st2.models + ' 款模型') : '';
-    }
     searchInput.focus();
   });
 
@@ -1241,10 +1423,6 @@ export function renderPage() {
     if (!box.checked && i >= 0) state.orgs.splice(i, 1);
     renderOrgList();
     render();
-    if (state.data) {
-      var st3 = stats(state.data);
-      boardCount.textContent = st3.boards ? (st3.boards + ' 个榜单 · ' + st3.models + ' 款模型') : '';
-    }
   });
   // 「全部厂商」：清空已选
   orgAll.addEventListener('change', function () {
@@ -1252,10 +1430,6 @@ export function renderPage() {
       state.orgs = [];
       renderOrgList();
       render();
-      if (state.data) {
-        var st4 = stats(state.data);
-        boardCount.textContent = st4.boards ? (st4.boards + ' 个榜单 · ' + st4.models + ' 款模型') : '';
-      }
     }
   });
   // 点击面板外部关闭（阻止面板内点击冒泡关闭）
@@ -1302,11 +1476,16 @@ export function renderPage() {
     btn.classList.add('active');
     state.lic = btn.getAttribute('data-lic');
     render();
-    // 顶部统计随筛选联动
-    if (state.data) {
-      var st = stats(state.data);
-      boardCount.textContent = st.boards ? (st.boards + ' 个榜单 · ' + st.models + ' 款模型') : '';
-    }
+  });
+
+  /* ---------- 榜单切换按钮排：点哪个显示哪个榜单 ---------- */
+  boardTabs.addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-board]');
+    if (!btn) return;
+    var board = btn.getAttribute('data-board');
+    if (board === state.board) return; // 已激活：无需重渲染
+    state.board = board;
+    render(); // 内部 syncTabs 更新激活态
   });
 
   load();
