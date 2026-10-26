@@ -295,6 +295,37 @@ await ok('rows 路径提前终止：overall 集中在头部时不空翻全表', 
   assert.ok(rowsReqs <= 12, `rows 请求过多：${rowsReqs}，提前终止未生效`);
 });
 
+await ok('rows 单页 429 限流：退避重试后仍能拿全数据', async () => {
+  __resetFilterHealth();
+  const all = HF_PAGES.text_style_control || [];
+  const overall = all.map((r) => r.row).filter((r) => r.category === 'overall');
+  const hit429 = new Set();
+  globalThis.fetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (u.startsWith('https://datasets-server.huggingface.co/filter')) {
+      return new Response('{}', { status: 500, headers: { 'content-type': 'application/json' } });
+    }
+    if (u.startsWith('https://datasets-server.huggingface.co/rows')) {
+      const offset = Number(new URL(u).searchParams.get('offset') || 0);
+      // 第一页首次请求返回 429，重试应成功
+      if (offset === 0 && !hit429.has(0)) {
+        hit429.add(0);
+        return new Response('{}', { status: 429, headers: { 'content-type': 'application/json' } });
+      }
+      const page = all.slice(offset, offset + 100);
+      return new Response(JSON.stringify({ rows: page, num_rows_total: all.length }), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      });
+    }
+    return mockFetch(u, opts);
+  };
+  const s = (await refreshAll({})).sources.find((x) => x.id === 'arena-text');
+  globalThis.fetch = mockFetch;
+  assert.equal(s.status, 'live');
+  assert.equal(s.entries.length, overall.length);
+  assert.ok(hit429.has(0), '429 场景未被触发');
+});
+
 await ok('normalizeOrg：别名合并为规范名，未知保留原样', () => {
   assert.equal(normalizeOrg('openai'), 'OpenAI');
   assert.equal(normalizeOrg('OpenAI'), 'OpenAI');

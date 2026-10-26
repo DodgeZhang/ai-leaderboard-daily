@@ -68,7 +68,8 @@ export default {
       return new Response(renderPage(), {
         headers: {
           'content-type': 'text/html; charset=utf-8',
-          'cache-control': 'public, max-age=120',
+          // 不缓存 HTML：旧版页面 JS 会在新数据格式下出问题（曾出现缓存页加载失败）
+          'cache-control': 'no-store',
         },
       });
     }

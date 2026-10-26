@@ -845,6 +845,8 @@ export function renderPage() {
   var priceAll = document.getElementById('priceAll');
   var priceList = document.getElementById('priceList');
   var coldRetries = 0; // 首次抓取中的自动重试计数
+  var loadRetries = 0; // 请求失败后的自动重试计数
+  var MAX_LOAD_RETRIES = 10;
 
   function esc(v) {
     return String(v == null ? '' : v)
@@ -1090,6 +1092,7 @@ export function renderPage() {
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (data) {
         state.data = data;
+        loadRetries = 0;
         updatedAt.textContent = '更新于 ' + relTime(data.generatedAt);
         var st = stats(data);
         boardCount.textContent = st.boards ? (st.boards + ' 个榜单 · ' + st.models + ' 款模型') : '';
@@ -1103,9 +1106,18 @@ export function renderPage() {
           setTimeout(load, 3000);
         }
       })
-      .catch(function () {
+      .catch(function (err) {
+        // 请求失败不直接判死刑：自动重试（旧缓存页/偶发网络问题都能自愈），
+        // 仍失败才显示错误，并引导去 /healthz 看服务端诊断
+        loadRetries++;
+        if (loadRetries <= MAX_LOAD_RETRIES) {
+          setTimeout(load, 3000);
+          return;
+        }
         grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="ico">📡</div>' +
-          '<p>数据加载失败，请检查网络后重试</p></div>';
+          '<p>数据加载失败，请检查网络后重试<br>' +
+          '<span style="font-size:12px;opacity:.7">连续 ' + MAX_LOAD_RETRIES + ' 次请求未成功（' +
+          String((err && err.message) || '网络错误') + '）· 可访问 /healthz 查看服务端状态</span></p></div>';
       });
   }
 

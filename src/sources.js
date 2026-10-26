@@ -41,16 +41,50 @@ const ROWS_PAGE = 100; // /rows 单页行数
 const ROWS_CONCURRENCY = 5; // /rows 翻页并发度（控制 subrequest 总量 <50）
 const ROWS_MIN_PAGES = 3; // 至少翻这么多页才允许提前终止
 const ROWS_EMPTY_STREAK = 2; // 连续这么多页没有目标 category 行即判定翻完
+const FILTER_HEALTH_KEY = 'meta:filter-broken-until'; // KV 里的 filter 故障标记
+const FILTER_BROKEN_TTL = 660; // 故障标记保留 11 分钟（略大于 10 分钟禁用窗）
 
 /**
  * /filter 接口健康缓存：HF 侧 filter 故障时（如 2026-10-26 的持续 500），
- * 避免每个榜单都白等一次超时。10 分钟有效期内直接走 /rows。
+ * 避免每个榜单都白等一次超时。内存 + KV 双级：KV 级让冷启动的 isolate
+ * 也直接跳过 filter（每次冷启动省 6s 无效等待）。
  */
 let filterBrokenUntil = 0;
 
 /** 测试专用：重置 filter 健康缓存 */
 export function __resetFilterHealth() {
   filterBrokenUntil = 0;
+}
+
+/** filter 是否处于故障禁用期（内存优先，KV 兜底跨 isolate 共享） */
+async function isFilterBroken(env) {
+  if (Date.now() < filterBrokenUntil) return true;
+  try {
+    const kv = env && env.LEADERBOARD_KV;
+    if (!kv) return false;
+    const v = await kv.get(FILTER_HEALTH_KEY);
+    const until = Number(v) || 0;
+    if (until > Date.now()) {
+      filterBrokenUntil = until; // 同步到内存，后续不再读 KV
+      return true;
+    }
+  } catch (_) {
+    /* KV 读取失败不影响抓取主流程 */
+  }
+  return false;
+}
+
+/** 标记 filter 故障（内存 + KV，fire-and-forget 不阻塞抓取） */
+function markFilterBroken(env) {
+  filterBrokenUntil = Date.now() + 10 * 60 * 1000;
+  try {
+    const kv = env && env.LEADERBOARD_KV;
+    if (!kv) return;
+    const p = kv.put(FILTER_HEALTH_KEY, String(filterBrokenUntil), { expirationTtl: FILTER_BROKEN_TTL });
+    if (p && typeof p.catch === 'function') p.catch(() => {});
+  } catch (_) {
+    /* 忽略 */
+  }
 }
 
 /**
@@ -288,22 +322,29 @@ async function fetchArenaViaRows(config, category) {
   return collected;
 
   function fetchPage(off) {
-    return fetchWithTimeout(`${base}&offset=${off}&length=${ROWS_PAGE}`, {}, 10000)
-      .then((r) => (r.ok ? r.json() : null))
-      .catch(() => null);
+    // 429/5xx 退避 2s 重试一次：HF 对高频访问会限流，直接放弃会导致整榜数据残缺
+    const attempt = () =>
+      fetchWithTimeout(`${base}&offset=${off}&length=${ROWS_PAGE}`, {}, 10000).then((r) => {
+        if (r.ok) return r.json();
+        if (r.status === 429 || r.status >= 500) throw new Error('http ' + r.status);
+        return null; // 404 等确定性错误：不重试
+      });
+    return attempt().catch(() =>
+      new Promise((r) => setTimeout(r, 2000)).then(attempt).catch(() => null)
+    );
   }
 }
 
 /** 读取 Arena 官方 Hugging Face 数据集的某个榜单（返回全部条目，不截断） */
-async function fetchArenaBoard(config, category, kind) {
+async function fetchArenaBoard(config, category, kind, env) {
   let rows = null;
-  // filter 故障缓存有效期内跳过 filter（避免每榜白等一次超时）
-  if (Date.now() >= filterBrokenUntil) {
+  // filter 故障禁用期内跳过（内存/KV 双级缓存，冷启动也生效）
+  if (!(await isFilterBroken(env))) {
     try {
       rows = await fetchArenaViaFilter(config, category, kind);
     } catch (_) {
       // filter 不可用：10 分钟内整个 Worker 实例直接走 rows
-      filterBrokenUntil = Date.now() + 10 * 60 * 1000;
+      markFilterBroken(env);
       rows = null;
     }
   }
@@ -346,28 +387,36 @@ async function fetchArenaBoard(config, category, kind) {
 /* Artificial Analysis 抓取（官方免费 API）                              */
 /* ------------------------------------------------------------------ */
 
+/** 拉取 AA 单页（含 429/5xx 退避重试一次） */
+async function fetchAaPage(key, page) {
+  let res = await fetchWithTimeout(`${AA_API}?page=${page}`, {
+    headers: { 'x-api-key': key },
+  }, 15000);
+  // 限流/服务端抖动：退避 1.5s 重试一次，避免偶发失败整天不显示
+  if (res.status === 429 || res.status >= 500) {
+    await new Promise((r) => setTimeout(r, 1500));
+    res = await fetchWithTimeout(`${AA_API}?page=${page}`, {
+      headers: { 'x-api-key': key },
+    }, 15000);
+  }
+  if (!res.ok) throw new Error(`Artificial Analysis API 返回 HTTP ${res.status}（请检查 key 是否有效）`);
+  return res.json();
+}
+
 /** Artificial Analysis 官方免费 API（需要 AA_API_KEY，分页全量拉取） */
 async function fetchArtificialAnalysis(env) {
   const key = env && env.AA_API_KEY;
   if (!key) {
     throw new Error('未配置 AA_API_KEY（免费申请：artificialanalysis.ai 注册账号 → API Keys → 在 Worker 设置里注入）');
   }
-  const models = [];
-  for (let page = 1; page <= AA_MAX_PAGES; page++) {
-    let res = await fetchWithTimeout(`${AA_API}?page=${page}`, {
-      headers: { 'x-api-key': key },
-    }, 15000);
-    // 限流/服务端抖动：退避 1.5s 重试一次，避免偶发失败整天不显示
-    if (res.status === 429 || res.status >= 500) {
-      await new Promise((r) => setTimeout(r, 1500));
-      res = await fetchWithTimeout(`${AA_API}?page=${page}`, {
-        headers: { 'x-api-key': key },
-      }, 15000);
-    }
-    if (!res.ok) throw new Error(`Artificial Analysis API 返回 HTTP ${res.status}（请检查 key 是否有效）`);
-    const json = await res.json();
-    models.push(...(json.data || []));
-    if (!json.pagination || !json.pagination.has_more) break; // 已翻完
+  // 首页拿分页信息，随后逐页拉取（曾试过并发拉全部页：AA 对并发敏感，
+  // 同时 4 页直接 429 限流，故保持串行——4 页约 2s，可接受）
+  const first = await fetchAaPage(key, 1);
+  const models = [...(first.data || [])];
+  const totalPages = Math.min(AA_MAX_PAGES, (first.pagination && first.pagination.total_pages) || 1);
+  for (let page = 2; page <= totalPages; page++) {
+    const j = await fetchAaPage(key, page);
+    models.push(...(j.data || []));
   }
   const withIdx = models.filter((m) => m.evaluations && m.evaluations[AA_IDX] != null);
   if (!withIdx.length) throw new Error('AA API 返回数据中找不到智能指数字段');
@@ -425,7 +474,7 @@ export const SOURCES = [
     metric: 'IPS 得分 · 真实 Agent 任务完成率',
     accent: '#5E5CE6',
     desc: '在真实工作流中跑 Agent 任务，衡量“能不能把事办成”',
-    fetcher: () => fetchArenaBoard('agent', 'overall', 'ips'),
+    fetcher: (env) => fetchArenaBoard('agent', 'overall', 'ips', env),
   },
   {
     id: 'arena-text',
@@ -436,7 +485,7 @@ export const SOURCES = [
     metric: 'Arena Score · 真人盲测投票',
     accent: '#0A84FF',
     desc: '全球用户匿名两两对战投票，最接近“用起来哪个好”的金标准',
-    fetcher: () => fetchArenaBoard('text_style_control', 'overall', 'bt'),
+    fetcher: (env) => fetchArenaBoard('text_style_control', 'overall', 'bt', env),
   },
   {
     id: 'arena-search',
@@ -447,7 +496,7 @@ export const SOURCES = [
     metric: 'Arena Score · 联网搜索能力',
     accent: '#64D2FF',
     desc: '对比各模型的联网检索与答案综合能力',
-    fetcher: () => fetchArenaBoard('search_style_control', 'overall', 'bt'),
+    fetcher: (env) => fetchArenaBoard('search_style_control', 'overall', 'bt', env),
   },
 ];
 
