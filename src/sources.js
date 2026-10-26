@@ -2,8 +2,10 @@
  * 数据源定义与每日抓取逻辑
  * ------------------------------------------------------------------
  * 每个抓取器返回统一格式的数组：
- *   { rank, model, org, score, ci, license, open, price?, speed? }
+ *   { rank, model, org, score, ci, license, open, price?, priceUsd?, speed? }
  *   open = true 表示开源（开放权重），false 表示闭源。
+ *   price = "$3.5/M" 展示串；priceUsd = 混合价数值（美元/百万 tokens），
+ *   供前端价格筛选做数值比较（仅 AA 榜有价格数据）。
  *
  * 收录原则（2026-10-26 修订）：只保留「真能自动拿到数据」的榜单，
  * 拿不到的一律不进页面。当前收录 4 个数据源：
@@ -224,6 +226,7 @@ async function fetchArtificialAnalysis(env) {
       license: null,
       open: isOpenModelName(m),
       price: blended != null ? `$${r2(blended)}/M` : null,
+      priceUsd: blended, // 混合价数值（美元/百万 tokens），供前端价格筛选；旧快照无此字段时前端从 price 串解析
       speed: speed != null ? `${r1(speed)} tok/s` : null,
     };
   });

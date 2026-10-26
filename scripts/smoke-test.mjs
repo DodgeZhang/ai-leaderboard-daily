@@ -186,6 +186,7 @@ await ok('AA 有 key → 按智能指数降序 + 价格/速度 + 开源启发式
   assert.ok(s.entries[0].score > s.entries[1].score);
   // 混合价 = (3×3.0 + 5.0)/4 = 3.5
   assert.equal(s.entries[0].price, '$3.5/M');
+  assert.equal(s.entries[0].priceUsd, 3.5); // 数值字段供前端价格筛选
   assert.equal(s.entries[0].speed, '96.3 tok/s');
   // 开源启发式：TopModel-X 闭源，GLM-5.3 开源
   assert.equal(s.entries[0].open, false);
@@ -273,6 +274,9 @@ await ok('前端页面包含关键结构与液态玻璃样式', () => {
     'id="diag"', 'updateDiag', 'shortErr',     // 数据源诊断区
     'id="searchInput"', 'id="searchClear"',    // 搜索框
     'id="orgFilter"', 'id="orgToggle"', 'id="orgPanel"', // 厂商多选下拉
+    'id="priceFilter"', 'id="priceToggle"', 'id="pricePanel"', 'id="priceList"', // 价格多选下拉
+    '全部价格', '≤ $1/M', '> $20/M',            // 价格档位标签
+    '仅 Artificial Analysis 榜提供价格数据',     // 价格面板说明
     'BOARD_ORDER',                             // 固定展示顺序
     '[hidden] { display: none !important; }',  // hidden 显隐兜底（否则面板/✕/诊断区被 display 强制显示）
     'z-index: 40',                             // header 抬升堆叠层级（下拉面板不被榜单卡片盖住）
@@ -321,6 +325,51 @@ await ok('applyEntryFilters：关键字 / 厂商 / 开源闭源组合筛选', ()
   assert.equal(applyEntryFilters(entries, { kw: '   ' }).length, 4);
   // 不过滤原数组
   assert.equal(entries.length, 4);
+});
+
+// 5b. 价格档位筛选（prices：free / lt1 / t1_5 / t5_20 / gt20，混合价 $/M tokens）
+await ok('applyEntryFilters：价格档位筛选（含旧快照展示串兜底）', () => {
+  const pe = [
+    { rank: 1, model: 'FreeModel', org: 'OpenRouter', open: true, priceUsd: 0 },
+    { rank: 2, model: 'CheapModel', org: 'DeepSeek', open: true, priceUsd: 0.27 },
+    { rank: 3, model: 'MidModel', org: 'OpenAI', open: false, priceUsd: 3.5 },
+    { rank: 4, model: 'HighModel', org: 'Anthropic', open: false, priceUsd: 15 },
+    { rank: 5, model: 'PremiumModel', org: 'Anthropic', open: false, priceUsd: 60 },
+    { rank: 6, model: 'NoPrice', org: 'Arena', open: true }, // Arena 条目无价格数据
+  ];
+  const ids = (r) => r.map((e) => e.rank);
+  // 无价格筛选 → 全部返回（不影响其他筛选路径）
+  assert.deepEqual(ids(applyEntryFilters(pe, {})), [1, 2, 3, 4, 5, 6]);
+  // 单档位
+  assert.deepEqual(ids(applyEntryFilters(pe, { prices: ['free'] })), [1]);
+  assert.deepEqual(ids(applyEntryFilters(pe, { prices: ['lt1'] })), [2]);
+  assert.deepEqual(ids(applyEntryFilters(pe, { prices: ['t1_5'] })), [3]);
+  assert.deepEqual(ids(applyEntryFilters(pe, { prices: ['t5_20'] })), [4]);
+  assert.deepEqual(ids(applyEntryFilters(pe, { prices: ['gt20'] })), [5]);
+  // 多档位取并集
+  assert.deepEqual(ids(applyEntryFilters(pe, { prices: ['lt1', 't1_5'] })), [2, 3]);
+  assert.deepEqual(ids(applyEntryFilters(pe, { prices: ['free', 'gt20'] })), [1, 5]);
+  // 无价格数据的条目在任何价格筛选生效时被排除
+  assert.ok(!applyEntryFilters(pe, { prices: ['free'] }).some((e) => e.rank === 6));
+  // 边界值归档：0→free、0.01→lt1、1→lt1、5→t1_5、20→t5_20、20.01→gt20
+  assert.equal(applyEntryFilters([{ priceUsd: 0 }], { prices: ['free'] }).length, 1);
+  assert.equal(applyEntryFilters([{ priceUsd: 0 }], { prices: ['lt1'] }).length, 0);
+  assert.equal(applyEntryFilters([{ priceUsd: 0.01 }], { prices: ['lt1'] }).length, 1);
+  assert.equal(applyEntryFilters([{ priceUsd: 1 }], { prices: ['lt1'] }).length, 1);
+  assert.equal(applyEntryFilters([{ priceUsd: 1 }], { prices: ['t1_5'] }).length, 0);
+  assert.equal(applyEntryFilters([{ priceUsd: 5 }], { prices: ['t1_5'] }).length, 1);
+  assert.equal(applyEntryFilters([{ priceUsd: 20 }], { prices: ['t5_20'] }).length, 1);
+  assert.equal(applyEntryFilters([{ priceUsd: 20.01 }], { prices: ['t5_20'] }).length, 0);
+  assert.equal(applyEntryFilters([{ priceUsd: 20.01 }], { prices: ['gt20'] }).length, 1);
+  // 旧快照无 priceUsd：从 "$0.5/M" 展示串解析
+  assert.deepEqual(ids(applyEntryFilters([{ rank: 7, model: 'Old', price: '$0.5/M' }], { prices: ['lt1'] })), [7]);
+  assert.deepEqual(applyEntryFilters([{ rank: 7, model: 'Old', price: '$0.5/M' }], { prices: ['free'] }), []);
+  // 与关键字 / 厂商 / 开源闭源叠加
+  assert.deepEqual(ids(applyEntryFilters(pe, { prices: ['t5_20', 'gt20'], orgs: ['Anthropic'] })), [4, 5]);
+  assert.deepEqual(ids(applyEntryFilters(pe, { prices: ['t1_5'], kw: 'mid' })), [3]);
+  assert.deepEqual(applyEntryFilters(pe, { prices: ['free'], lic: 'closed' }), []);
+  // 未知档位 id 不过滤有价格的条目（防御性，前端不应产生）
+  assert.deepEqual(ids(applyEntryFilters(pe, { prices: ['bogus'] })), [1, 2, 3, 4, 5]);
 });
 
 // 6. 数据源配置完整性（含展示顺序：AA 第一、Agent 第二）

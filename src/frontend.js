@@ -6,12 +6,17 @@
  */
 
 /**
- * 榜单条目组合筛选：开源/闭源 + 关键字 + 厂商多选（可叠加）。
+ * 榜单条目组合筛选：开源/闭源 + 关键字 + 厂商多选 + 价格多选（可叠加）。
  * 纯函数，无副作用——既供页面脚本使用（函数源码经 toString() 注入页面），
  * 也供单元测试直接 import 验证。
  *
+ * 价格档位（prices 数组，元素为档位 id，空数组 = 不筛选）：
+ *   free 免费 / lt1 ≤$1 / t1_5 $1–5 / t5_20 $5–20 / gt20 >$20
+ *   单位为混合价（输入:输出 = 3:1）美元/百万 tokens。
+ *   无价格数据的条目（Arena 各榜）在任何价格筛选生效时被排除。
+ *
  * @param entries  某榜单的条目数组
- * @param opts     { lic: 'all'|'open'|'closed', kw: string, orgs: string[] }
+ * @param opts     { lic: 'all'|'open'|'closed', kw: string, orgs: string[], prices: string[] }
  * @returns 新数组（不过滤原数据）
  */
 export function applyEntryFilters(entries, opts) {
@@ -19,7 +24,30 @@ export function applyEntryFilters(entries, opts) {
   var lic = o.lic || 'all';
   var kw = String(o.kw || '').trim().toLowerCase();
   var orgs = o.orgs || [];
+  var prices = o.prices || [];
   if (!Array.isArray(entries)) return [];
+
+  /* 混合价数值：优先 priceUsd 字段，兜底解析 "$3.5/M" 展示串（兼容旧快照）。
+     注意不能用正则：本函数经 toString() 注入页面，而页面脚本在模板字符串里，
+     "\$"、"\d" 会被烤成 "$"、"d"；parseFloat 遇非数字即停，无需正则。 */
+  function priceUsd(e) {
+    if (!e) return null;
+    if (typeof e.priceUsd === 'number' && isFinite(e.priceUsd)) return e.priceUsd;
+    var s = String(e.price || '');
+    if (s.charAt(0) === '$') s = s.slice(1); // 去掉货币符号前缀
+    var v = parseFloat(s); // '0.8/M' → 0.8
+    return isFinite(v) ? v : null;
+  }
+  /* 档位边界（与页面 PRICE_TIERS 标签保持一致） */
+  function inPriceTier(p, t) {
+    if (t === 'free') return p <= 0;
+    if (t === 'lt1') return p > 0 && p <= 1;
+    if (t === 't1_5') return p > 1 && p <= 5;
+    if (t === 't5_20') return p > 5 && p <= 20;
+    if (t === 'gt20') return p > 20;
+    return true; // 未知档位 id 不过滤
+  }
+
   return entries.filter(function (e) {
     if (lic === 'open' && !e.open) return false;
     if (lic === 'closed' && e.open) return false;
@@ -28,6 +56,15 @@ export function applyEntryFilters(entries, opts) {
       var name = String(e.model || '').toLowerCase();
       var org = String(e.org || '').toLowerCase();
       if (name.indexOf(kw) < 0 && org.indexOf(kw) < 0) return false;
+    }
+    if (prices.length) {
+      var p = priceUsd(e);
+      if (p == null) return false; // 没有价格数据的条目不参与价格筛选
+      var hit = false;
+      for (var i = 0; i < prices.length; i++) {
+        if (inPriceTier(p, prices[i])) { hit = true; break; }
+      }
+      if (!hit) return false;
     }
     return true;
   });
@@ -325,6 +362,14 @@ export function renderPage() {
     font-variant-numeric: tabular-nums;
   }
   .multi-empty { padding: 12px 8px; font-size: 12px; color: var(--text-2); text-align: center; }
+  .multi-note {
+    margin-top: 6px;
+    padding: 8px 8px 2px;
+    border-top: 1px dashed var(--glass-border);
+    font-size: 11px;
+    color: var(--text-2);
+    line-height: 1.6;
+  }
 
   /* 圆形刷新按钮 */
   .icon-btn {
@@ -729,6 +774,14 @@ export function renderPage() {
           <div class="multi-list" id="orgList"></div>
         </div>
       </div>
+      <div class="multi" id="priceFilter">
+        <button class="multi-toggle" id="priceToggle"><span id="priceToggleLabel">价格：全部</span><i class="caret">▾</i></button>
+        <div class="multi-panel" id="pricePanel" hidden>
+          <label class="multi-item"><input type="checkbox" id="priceAll" checked /><span>全部价格</span></label>
+          <div class="multi-list" id="priceList"></div>
+          <p class="multi-note">混合价（输入:输出 = 3:1，$/百万 tokens）<br>仅 Artificial Analysis 榜提供价格数据</p>
+        </div>
+      </div>
       <div class="seg" id="seg">
         <button data-lic="all" class="active">全部</button>
         <button data-lic="open">仅开源</button>
@@ -745,6 +798,7 @@ export function renderPage() {
       <div class="diag-body" id="diagBody" hidden></div>
     </div>
     <p><b>数据来源</b>：Arena（Hugging Face 官方数据集 lmarena-ai/leaderboard-dataset）· Artificial Analysis（配置 API Key 后显示）</p>
+    <p><b>价格</b>：混合价 = 输入价 ×3 + 输出价按 3:1 折算（美元/百万 tokens），仅 Artificial Analysis 榜提供价格数据——价格筛选生效时，Arena 各榜因无价格数据不参与展示。</p>
     <p><b>开源 / 闭源</b>：Arena 各榜按官方 license 字段判定，准确；Artificial Analysis 接口不提供 license，按模型名称/发布方启发式判定，仅供参考。</p>
     <p><b>怎么看</b>：Arena 是真人盲测偏好，Artificial Analysis 是独立实测综合分——口径不同，建议交叉参考；头部模型分差常带置信区间，可能是统计意义上的并列。</p>
     <p>本页面只展示成功抓取到数据的榜单 · Cloudflare Worker 每日自动更新 · 数据版权归各榜单官方所有</p>
@@ -764,7 +818,7 @@ export function renderPage() {
      （即使 KV 里是旧顺序的快照，也按这个顺序渲染） */
   var BOARD_ORDER = ['aa-llm', 'arena-agent', 'arena-text', 'arena-search'];
 
-  var state = { data: null, lic: 'all', kw: '', orgs: [], orgQuery: '' };
+  var state = { data: null, lic: 'all', kw: '', orgs: [], orgQuery: '', prices: [] };
   var grid = document.getElementById('grid');
   var updatedAt = document.getElementById('updatedAt');
   var boardCount = document.getElementById('boardCount');
@@ -784,6 +838,12 @@ export function renderPage() {
   var orgSearch = document.getElementById('orgSearch');
   var orgAll = document.getElementById('orgAll');
   var orgList = document.getElementById('orgList');
+  var priceFilter = document.getElementById('priceFilter');
+  var priceToggle = document.getElementById('priceToggle');
+  var priceToggleLabel = document.getElementById('priceToggleLabel');
+  var pricePanel = document.getElementById('pricePanel');
+  var priceAll = document.getElementById('priceAll');
+  var priceList = document.getElementById('priceList');
   var coldRetries = 0; // 首次抓取中的自动重试计数
 
   function esc(v) {
@@ -906,6 +966,73 @@ export function renderPage() {
     orgToggle.classList.toggle('active', state.orgs.length > 0);
   }
 
+  /* ---------- 价格多选 ---------- */
+  /* 档位边界与 applyEntryFilters 内的 inPriceTier 保持一致（改一边必须同步另一边） */
+  var PRICE_TIERS = [
+    { id: 'free', label: '免费' },
+    { id: 'lt1', label: '≤ $1/M' },
+    { id: 't1_5', label: '$1 – 5/M' },
+    { id: 't5_20', label: '$5 – 20/M' },
+    { id: 'gt20', label: '> $20/M' },
+  ];
+
+  /** 条目混合价数值：优先 priceUsd，兜底解析 "$3.5/M" 展示串（旧快照）。
+      不能用正则：页面脚本整体在模板字符串里，"\$" 会被烤成 "$"。 */
+  function parsePriceUsd(e) {
+    if (!e) return null;
+    if (typeof e.priceUsd === 'number' && isFinite(e.priceUsd)) return e.priceUsd;
+    var s = String(e.price || '');
+    if (s.charAt(0) === '$') s = s.slice(1); // 去掉货币符号前缀
+    var v = parseFloat(s); // '0.8/M' → 0.8
+    return isFinite(v) ? v : null;
+  }
+
+  /** 数值 → 档位 id（无价格数据返回 null） */
+  function tierOfPrice(p) {
+    if (p == null) return null;
+    if (p <= 0) return 'free';
+    if (p <= 1) return 'lt1';
+    if (p <= 5) return 't1_5';
+    if (p <= 20) return 't5_20';
+    return 'gt20';
+  }
+
+  /** 统计各价格档位的条目数（只数有价格数据的条目，即 AA 榜） */
+  function priceTierCounts() {
+    var counts = {};
+    ((state.data && state.data.sources) || []).forEach(function (s) {
+      (s.entries || []).forEach(function (e) {
+        var t = tierOfPrice(parsePriceUsd(e));
+        if (t) counts[t] = (counts[t] || 0) + 1;
+      });
+    });
+    return counts;
+  }
+
+  /** 渲染价格多选面板（固定 5 档 + 条目计数 + 已选状态） */
+  function renderPriceList() {
+    var counts = priceTierCounts();
+    priceList.innerHTML = PRICE_TIERS.map(function (t) {
+      return '<label class="multi-item"><input type="checkbox" data-price="' + t.id + '"' +
+        (state.prices.indexOf(t.id) >= 0 ? ' checked' : '') + ' /><span>' + t.label + '</span>' +
+        '<span class="cnt">' + (counts[t.id] || 0) + '</span></label>';
+    }).join('');
+    priceAll.checked = state.prices.length === 0;
+    priceToggleLabel.textContent = state.prices.length === 0
+      ? '价格：全部'
+      : '价格：' + (state.prices.length === 1
+        ? (PRICE_TIERS.filter(function (t) { return t.id === state.prices[0]; })[0] || {}).label
+        : '已选 ' + state.prices.length + ' 档');
+    priceToggle.classList.toggle('active', state.prices.length > 0);
+  }
+
+  /** 顶部「N 个榜单 · M 款模型」随筛选联动 */
+  function syncCount() {
+    if (!state.data) return;
+    var st = stats(state.data);
+    boardCount.textContent = st.boards ? (st.boards + ' 个榜单 · ' + st.models + ' 款模型') : '';
+  }
+
   function render() {
     if (!state.data) { grid.innerHTML = skeleton(4); return; }
     // 组合筛选（开源/闭源 + 关键字 + 厂商多选，可叠加）；只渲染筛完仍有条目的榜单
@@ -924,6 +1051,12 @@ export function renderPage() {
       var tips = [];
       if (state.kw) tips.push('关键字「' + state.kw + '」');
       if (state.orgs.length) tips.push('厂商（' + state.orgs.length + ' 家）');
+      if (state.prices.length) {
+        tips.push('价格（' + state.prices.map(function (id) {
+          var t = PRICE_TIERS.filter(function (x) { return x.id === id; })[0];
+          return t ? t.label : id;
+        }).join(' / ') + '）');
+      }
       if (state.lic !== 'all') tips.push(state.lic === 'open' ? '仅开源' : '仅闭源');
       var cold = !tips.length;
       grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="ico">' +
@@ -962,6 +1095,7 @@ export function renderPage() {
         boardCount.textContent = st.boards ? (st.boards + ' 个榜单 · ' + st.models + ' 款模型') : '';
         render();
         renderOrgList();
+        renderPriceList();
         updateDiag(data);
         // 冷启动：KV 里还没有数据时，后台抓取需要十几秒，自动重试几次
         if (!st.boards && coldRetries < 12) {
@@ -987,6 +1121,7 @@ export function renderPage() {
         boardCount.textContent = st.boards ? (st.boards + ' 个榜单 · ' + st.models + ' 款模型') : '';
         render();
         renderOrgList();
+        renderPriceList();
         updateDiag(data);
         var all = data.sources || [];
         var bad = all.filter(function (s) { return !(s.entries && s.entries.length); });
@@ -1034,6 +1169,7 @@ export function renderPage() {
   /* ---------- 厂商多选下拉 ---------- */
   orgToggle.addEventListener('click', function (e) {
     e.stopPropagation();
+    pricePanel.hidden = true; // 两个下拉互斥
     orgPanel.hidden = !orgPanel.hidden;
     if (!orgPanel.hidden) {
       renderOrgList();
@@ -1073,7 +1209,40 @@ export function renderPage() {
   });
   // 点击面板外部关闭（阻止面板内点击冒泡关闭）
   orgPanel.addEventListener('click', function (e) { e.stopPropagation(); });
-  document.addEventListener('click', function () { orgPanel.hidden = true; });
+  pricePanel.addEventListener('click', function (e) { e.stopPropagation(); });
+  document.addEventListener('click', function () {
+    orgPanel.hidden = true;
+    pricePanel.hidden = true;
+  });
+
+  /* ---------- 价格多选下拉 ---------- */
+  priceToggle.addEventListener('click', function (e) {
+    e.stopPropagation();
+    orgPanel.hidden = true; // 两个下拉互斥
+    pricePanel.hidden = !pricePanel.hidden;
+    if (!pricePanel.hidden) renderPriceList();
+  });
+  // 「全部价格」：清空已选档位
+  priceAll.addEventListener('change', function () {
+    if (priceAll.checked) {
+      state.prices = [];
+      renderPriceList();
+      render();
+      syncCount();
+    }
+  });
+  // 勾选 / 取消某个价格档位（事件委托）
+  priceList.addEventListener('change', function (e) {
+    var box = e.target;
+    var tier = box.getAttribute && box.getAttribute('data-price');
+    if (!tier) return;
+    var i = state.prices.indexOf(tier);
+    if (box.checked && i < 0) state.prices.push(tier);
+    if (!box.checked && i >= 0) state.prices.splice(i, 1);
+    renderPriceList();
+    render();
+    syncCount();
+  });
 
   seg.addEventListener('click', function (e) {
     var btn = e.target.closest('button');
