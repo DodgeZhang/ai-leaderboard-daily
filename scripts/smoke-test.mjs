@@ -7,7 +7,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { refreshAll, buildFallbackSnapshot, SOURCES, isOpenLicense, isOpenModelName } from '../src/sources.js';
+import { refreshAll, buildFallbackSnapshot, SOURCES, isOpenLicense, isOpenModelName, normalizeOrg, __resetFilterHealth } from '../src/sources.js';
 import { renderPage, applyEntryFilters } from '../src/frontend.js';
 
 /* ---------- mock 数据 ---------- */
@@ -125,6 +125,7 @@ function ok(name, fn) {
 console.log('smoke test: ai-leaderboard worker\n');
 
 // 1. 无 AA key：刷新全部数据源
+__resetFilterHealth();
 const snap = await refreshAll({});
 
 await ok('返回 4 个数据源（仅收录可自动获取的榜单）', () => assert.equal(snap.sources.length, 4));
@@ -176,6 +177,7 @@ await ok('快照可 JSON 序列化（无函数残留）', () => {
 });
 
 // 2. 有 AA key
+__resetFilterHealth();
 const snap2 = await refreshAll({ AA_API_KEY: 'test-key-123' });
 
 await ok('AA 有 key → 按智能指数降序 + 价格/速度 + 开源启发式', () => {
@@ -231,6 +233,7 @@ await ok('AA key 无效（401）→ unavailable', async () => {
     }
     return realFetch(url, opts); // 其余仍走 mock？不，realFetch 无网络，这里不会触发
   };
+  __resetFilterHealth();
   const s = (await refreshAll({ AA_API_KEY: 'bad' })).sources.find((x) => x.id === 'aa-llm');
   assert.equal(s.status, 'unavailable');
   assert.match(s.error, /401/);
@@ -238,6 +241,7 @@ await ok('AA key 无效（401）→ unavailable', async () => {
 });
 
 await ok('filter 接口不可用时自动回退 rows 全表翻页', async () => {
+  __resetFilterHealth();
   globalThis.fetch = async (url, opts = {}) => {
     const u = String(url);
     if (u.startsWith('https://datasets-server.huggingface.co/filter')) {
@@ -249,6 +253,58 @@ await ok('filter 接口不可用时自动回退 rows 全表翻页', async () => 
   assert.equal(s.status, 'live');
   assert.equal(s.entries.length, 87); // rows 路径同样拿全 overall 行
   globalThis.fetch = mockFetch; // 恢复主 mock
+});
+
+await ok('rows 路径提前终止：overall 集中在头部时不空翻全表', async () => {
+  __resetFilterHealth();
+  // 1500 行大表（>MAX_ROWS 的 1/10，>15 页），overall 只在前 200 行
+  const rows = [];
+  for (let i = 0; i < 1500; i++) {
+    rows.push({
+      row_idx: i,
+      row: {
+        model_name: `m${i}`, organization: 'OpenAI', license: 'MIT', rank: i + 1,
+        category: i < 200 ? 'overall' : 'coding', rating: 1400 - i,
+      },
+    });
+  }
+  let rowsReqs = 0;
+  globalThis.fetch = async (url, opts = {}) => {
+    const u = String(url);
+    if (u.startsWith('https://datasets-server.huggingface.co/filter')) {
+      return new Response('{}', { status: 500, headers: { 'content-type': 'application/json' } });
+    }
+    if (u.startsWith('https://datasets-server.huggingface.co/rows')) {
+      const cfg = new URL(u).searchParams.get('config');
+      const offset = Number(new URL(u).searchParams.get('offset') || 0);
+      // text 榜用 1500 行大表；agent/search 用常规 mock 表
+      const table = cfg === 'text_style_control' ? rows : (HF_PAGES[cfg] || []);
+      if (cfg === 'text_style_control') rowsReqs++;
+      const page = table.slice(offset, offset + 100);
+      return new Response(JSON.stringify({ rows: page, num_rows_total: table.length }), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      });
+    }
+    return mockFetch(u, opts);
+  };
+  const s = (await refreshAll({})).sources.find((x) => x.id === 'arena-text');
+  globalThis.fetch = mockFetch;
+  assert.equal(s.status, 'live');
+  assert.equal(s.entries.length, 200); // 前 200 行 overall 全部拿到
+  // 提前终止：并发翻页最多 ~10 个请求；若老实翻全表需要 15+ 且串行
+  assert.ok(rowsReqs <= 12, `rows 请求过多：${rowsReqs}，提前终止未生效`);
+});
+
+await ok('normalizeOrg：别名合并为规范名，未知保留原样', () => {
+  assert.equal(normalizeOrg('openai'), 'OpenAI');
+  assert.equal(normalizeOrg('OpenAI'), 'OpenAI');
+  assert.equal(normalizeOrg('anthropic'), 'Anthropic');
+  assert.equal(normalizeOrg('Google DeepMind'), 'Google');
+  assert.equal(normalizeOrg('zhipu'), 'Z AI');
+  assert.equal(normalizeOrg('Moonshot AI'), 'Moonshot');
+  assert.equal(normalizeOrg('UnknownCorp'), 'UnknownCorp'); // 未收录保留原样
+  assert.equal(normalizeOrg(''), '');
+  assert.equal(normalizeOrg(null), '');
 });
 
 // 3. 内置快照（首次访问）：空 sources，前端进入“抓取中”状态

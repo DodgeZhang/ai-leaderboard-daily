@@ -38,7 +38,7 @@
 - Arena 各榜：按数据集自带的官方 `license` 字段判定，**准确**；
 - Artificial Analysis：接口不返回 license（Pro 订阅才有），按模型名称/发布方的启发式规则判定（GLM、Qwen、DeepSeek、Kimi、MiMo、Gemma、Llama 等开放权重家族），**仅供参考**。
 
-> 关于 Arena 数据：Arena 官方已将全部榜单历史发布为 Hugging Face 数据集（lmarena-ai/leaderboard-dataset）。本 Worker 通过 datasets-server 的 `/filter` 接口按 `category='overall'` 服务端过滤后翻页（实测 text 榜 overall 共 418 条、agent 50 条、search 42 条，合计 7 次请求拿全），`/filter` 不可用时自动回退 `/rows` 全表翻页 + 客户端过滤。
+> 关于 Arena 数据：Arena 官方已将全部榜单历史发布为 Hugging Face 数据集（lmarena-ai/leaderboard-dataset）。本 Worker 通过 datasets-server 的 `/filter` 接口按 `category='overall'` 服务端过滤后翻页（实测 text 榜 overall 共 418 条、agent 50 条、search 42 条，合计 7 次请求拿全）。`/filter` 故障时（2026-10-26 曾持续 500）自动回退 `/rows`：并发翻页（每批 5 页）+ 提前终止（实测 overall 集中在表头部，连续 2 页无目标行即判定翻完）+ 失败页重试一轮，并缓存 filter 故障状态 10 分钟避免每榜白等超时。整套抓取实测 8 秒内完成（首次含 filter 超时学费），保证后台抓取在用户关页前写完 KV。
 
 > 关于 Arena 数据：Arena 官方已将全部榜单历史发布为 Hugging Face 数据集（lmarena-ai/leaderboard-dataset），本 Worker 通过 datasets-server REST API 读取，是官方一手数据，无需渲染网页、无需密钥。
 >

@@ -37,6 +37,21 @@ export { AA_API };
 
 const MAX_ROWS = 2000; // 单个榜单的翻页安全上限（10 页 filter / 20 页 rows）
 const AA_MAX_PAGES = 6; // AA 分页安全上限（每页 200 条）
+const ROWS_PAGE = 100; // /rows 单页行数
+const ROWS_CONCURRENCY = 5; // /rows 翻页并发度（控制 subrequest 总量 <50）
+const ROWS_MIN_PAGES = 3; // 至少翻这么多页才允许提前终止
+const ROWS_EMPTY_STREAK = 2; // 连续这么多页没有目标 category 行即判定翻完
+
+/**
+ * /filter 接口健康缓存：HF 侧 filter 故障时（如 2026-10-26 的持续 500），
+ * 避免每个榜单都白等一次超时。10 分钟有效期内直接走 /rows。
+ */
+let filterBrokenUntil = 0;
+
+/** 测试专用：重置 filter 健康缓存 */
+export function __resetFilterHealth() {
+  filterBrokenUntil = 0;
+}
 
 const r1 = (n) => Math.round(n * 10) / 10;
 const r2 = (n) => Math.round(n * 100) / 100;
@@ -92,6 +107,79 @@ export function isOpenModelName(model) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 厂商名归一化                                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 厂商别名表：Arena 数据集用小写组织名（openai/anthropic），
+ * Artificial Analysis 用规范名（OpenAI/Anthropic），直接渲染会在厂商
+ * 筛选里分裂成两个选项。这里统一成规范展示名；未收录的保留原样。
+ */
+const ORG_ALIASES = {
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  google: 'Google',
+  'google deepmind': 'Google',
+  meta: 'Meta',
+  'meta-llama': 'Meta',
+  'meta llama': 'Meta',
+  mistral: 'Mistral',
+  'mistral ai': 'Mistral',
+  deepseek: 'DeepSeek',
+  alibaba: 'Alibaba',
+  qwen: 'Alibaba',
+  'alibaba cloud': 'Alibaba',
+  moonshot: 'Moonshot',
+  'moonshot ai': 'Moonshot',
+  kimi: 'Moonshot',
+  zhipu: 'Z AI',
+  'z ai': 'Z AI',
+  'z-ai': 'Z AI',
+  glm: 'Z AI',
+  chatglm: 'Z AI',
+  microsoft: 'Microsoft',
+  xai: 'xAI',
+  'x.ai': 'xAI',
+  nvidia: 'NVIDIA',
+  amazon: 'Amazon',
+  aws: 'Amazon',
+  ibm: 'IBM',
+  baidu: 'Baidu',
+  tencent: 'Tencent',
+  bytedance: 'ByteDance',
+  'byte dance': 'ByteDance',
+  '01.ai': '01.AI',
+  '01ai': '01.AI',
+  cohere: 'Cohere',
+  ai21: 'AI21',
+  perplexity: 'Perplexity',
+  together: 'Together',
+  'together ai': 'Together',
+  salesforce: 'Salesforce',
+  apple: 'Apple',
+  reka: 'Reka',
+  'reka ai': 'Reka',
+  inflection: 'Inflection',
+  stability: 'Stability AI',
+  'stability ai': 'Stability AI',
+  nous: 'Nous Research',
+  'nous research': 'Nous Research',
+  ai2: 'Allen Institute',
+  'allen institute': 'Allen Institute',
+  'allenai': 'Allen Institute',
+  internlm: 'Shanghai AI Lab',
+  'shanghai ai lab': 'Shanghai AI Lab',
+  'shanghai ai laboratory': 'Shanghai AI Lab',
+};
+
+/** 厂商名归一化为规范展示名（大小写/别名合并） */
+export function normalizeOrg(name) {
+  const s = String(name || '').trim();
+  if (!s) return '';
+  return ORG_ALIASES[s.toLowerCase()] || s;
+}
+
+/* ------------------------------------------------------------------ */
 /* Arena 抓取（Hugging Face 官方数据集）                                */
 /* ------------------------------------------------------------------ */
 
@@ -107,7 +195,8 @@ async function fetchArenaViaFilter(config, category, kind) {
   const where = encodeURIComponent(`"category"='${category}'`);
   const collected = [];
   for (let offset = 0; offset < MAX_ROWS; offset += 100) {
-    const res = await fetchWithTimeout(`${base}&where=${where}&limit=100&offset=${offset}`);
+    // filter 故障时 HF 可能 10s+ 才返回 500，超时收紧到 6s 快速回退 rows
+    const res = await fetchWithTimeout(`${base}&where=${where}&limit=100&offset=${offset}`, {}, 6000);
     if (!res.ok) throw new Error(`Hugging Face filter 接口返回 HTTP ${res.status}`);
     const json = await res.json();
     collected.push(...(json.rows || []).map((r) => r.row).filter(Boolean));
@@ -117,32 +206,85 @@ async function fetchArenaViaFilter(config, category, kind) {
   return collected;
 }
 
-/** 回退方案：/rows 全表翻页 + 客户端过滤 overall 行 */
+/**
+ * 回退方案：/rows 全表翻页 + 客户端过滤 category 行。
+ *
+ * 两个关键优化（2026-10-26，HF filter 故障期间实测）：
+ *  1) 提前终止：实测 overall 行集中在表头部（text 榜 418 个 overall 分布在前
+ *     418 行内），连续 ROWS_EMPTY_STREAK 页没有目标行即可判定翻完，
+ *     避免对 11099 行的全表空翻 20 页；
+ *  2) 并发翻页：每批 ROWS_CONCURRENCY 页并行请求，总耗时从「页数 × 单页延迟」
+ *     降到「批数 × 单页延迟」，保证后台抓取能在几秒内完成（waitUntil 不会被
+ *     用户关页打断，KV 能按时写入）。
+ */
 async function fetchArenaViaRows(config, category) {
   const base =
     `${HF_ROWS_BASE}?dataset=${HF_DATASET}` +
     `&config=${encodeURIComponent(config)}&split=latest`;
   const collected = [];
-  for (let offset = 0; offset < MAX_ROWS; offset += 100) {
-    const res = await fetchWithTimeout(`${base}&offset=${offset}&length=100`);
-    if (!res.ok) throw new Error(`Hugging Face datasets-server 返回 HTTP ${res.status}`);
-    const json = await res.json();
-    collected.push(
-      ...(json.rows || []).map((r) => r.row).filter((r) => r && r.category === category)
-    );
-    const total = Number(json.num_rows_total) || 0;
-    if (total === 0 || offset + 100 >= total) break; // 已翻完
+  let emptyStreak = 0; // 连续无目标 category 行的页数（仅统计成功获取的页）
+  let offset = 0;
+  let anyOk = false;
+  let retried = false; // 失败页重试标记（全程只重试一轮，避免无限重试拖慢抓取）
+
+  while (offset < MAX_ROWS) {
+    // 一批并发请求
+    const batchOffsets = [];
+    const batch = [];
+    for (let i = 0; i < ROWS_CONCURRENCY && offset + i * ROWS_PAGE < MAX_ROWS; i++) {
+      const off = offset + i * ROWS_PAGE;
+      batchOffsets.push(off);
+      batch.push(fetchPage(off));
+    }
+    let pages = await Promise.all(batch);
+
+    // 失败页重试一轮：偶发 502/超时不该让数据残缺，更不该被误判成「空页」提前终止
+    if (!retried && pages.some((p) => p === null)) {
+      retried = true;
+      pages = await Promise.all(
+        batchOffsets.map((off, i) => (pages[i] !== null ? Promise.resolve(pages[i]) : fetchPage(off)))
+      );
+    }
+
+    let reachedEnd = false;
+    for (let i = 0; i < pages.length; i++) {
+      const json = pages[i];
+      if (!json) continue; // 重试后仍失败：跳过（不计入 emptyStreak，避免误判翻完）
+      anyOk = true;
+      const pageOffset = batchOffsets[i];
+      const rows = (json.rows || []).map((r) => r.row).filter((r) => r && r.category === category);
+      collected.push(...rows);
+      emptyStreak = rows.length ? 0 : emptyStreak + 1;
+      const total = Number(json.num_rows_total) || 0;
+      if (total === 0 || pageOffset + ROWS_PAGE >= total) reachedEnd = true; // 已翻完
+    }
+    if (reachedEnd) break;
+    // 头部若干页之后连续 emptyStreak 页无目标行 → 目标行集中在头部，判定翻完
+    if (offset + batchOffsets.length * ROWS_PAGE >= ROWS_MIN_PAGES * ROWS_PAGE && emptyStreak >= ROWS_EMPTY_STREAK) break;
+    offset = batchOffsets[batchOffsets.length - 1] + ROWS_PAGE;
   }
+  if (!anyOk) throw new Error('Hugging Face datasets-server 无响应（rows 接口）');
   return collected;
+
+  function fetchPage(off) {
+    return fetchWithTimeout(`${base}&offset=${off}&length=${ROWS_PAGE}`, {}, 10000)
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
+  }
 }
 
 /** 读取 Arena 官方 Hugging Face 数据集的某个榜单（返回全部条目，不截断） */
 async function fetchArenaBoard(config, category, kind) {
   let rows = null;
-  try {
-    rows = await fetchArenaViaFilter(config, category, kind);
-  } catch (_) {
-    /* filter 不可用时落到 rows 方案 */
+  // filter 故障缓存有效期内跳过 filter（避免每榜白等一次超时）
+  if (Date.now() >= filterBrokenUntil) {
+    try {
+      rows = await fetchArenaViaFilter(config, category, kind);
+    } catch (_) {
+      // filter 不可用：10 分钟内整个 Worker 实例直接走 rows
+      filterBrokenUntil = Date.now() + 10 * 60 * 1000;
+      rows = null;
+    }
   }
   if (!rows || !rows.length) {
     try {
@@ -159,7 +301,7 @@ async function fetchArenaBoard(config, category, kind) {
       return {
         rank: row.rank,
         model: row.model_name,
-        org: row.organization,
+        org: normalizeOrg(row.organization),
         score: r2((row.score ?? 0) * 100) + '%',
         ci: half != null ? `±${r2(half * 100)}%` : null,
         license: row.license || null,
@@ -170,7 +312,7 @@ async function fetchArenaBoard(config, category, kind) {
     return {
       rank: row.rank,
       model: row.model_name,
-      org: row.organization,
+      org: normalizeOrg(row.organization),
       score: r1(row.rating ?? 0),
       ci: half != null ? `±${r1(half)}` : null,
       license: row.license || null,
@@ -220,7 +362,7 @@ async function fetchArtificialAnalysis(env) {
     return {
       rank: i + 1,
       model: m.name,
-      org: (m.model_creator && m.model_creator.name) || '',
+      org: normalizeOrg((m.model_creator && m.model_creator.name) || ''),
       score: m.evaluations[AA_IDX],
       ci: null,
       license: null,
